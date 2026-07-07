@@ -1,0 +1,30 @@
+## Tasks completed so far
+
+- Added evidence preview support in ZoneInstructions.tsx
+  - Implemented image preview modal for image evidence
+  - Implemented video preview modal for video evidence
+  - Fallback for other files to open in a new browser tab
+
+- Implemented hover-delete button on evidence tiles
+  - Added centered delete overlay on evidence preview cards
+  - Wired `Popconfirm` delete confirmation
+  - Refreshed evidence list after delete
+
+- Fixed backend evidence URL access
+  - Updated evidence_controller.py
+  - Added SAS-signed URLs for evidence returned by upload and retrieval
+  - Ensured evidence preview URLs are browser-accessible
+
+- Diagnosed preview issue
+  - Confirmed preview modal was opening
+  - Identified root cause as inaccessible/invalid `file_url`
+  - Verified analysis preview working separately, so problem was evidence URL generation
+
+- Validated build
+  - Ran frontend `npm run build`
+  - Confirmed application compiles successfully
+
+- Provided debugging and verification guidance
+  - How to inspect API response for `file_url`
+  - How to test the URL directly in browser
+  - Clarified supported preview file types (images/videos inline, others open externally)
