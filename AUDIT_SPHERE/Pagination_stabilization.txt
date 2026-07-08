@@ -1,0 +1,110 @@
+
+1. Title  
+Audit Evidence Interaction and Audits Pagination Stabilization  
+Technical Handover Document
+
+2. Objective  
+Resolve two high-impact usability issues in the audit workflow while preserving existing functionality:
+1. Prevent evidence preview from opening when users click Delete.  
+2. Restore reliable pagination behavior on the Audits page.
+
+3. Background  
+During QA and user validation, two regressions were identified:
+1. In the Evidence Files panel, clicking Delete could trigger preview because preview and delete actions shared the same clickable card context.  
+2. On the Audits listing page, pagination did not move correctly to the next page due to mixed client-side and server-side pagination logic, plus incorrect pagination total usage.
+
+4. Requirements  
+1. Keep existing upload, preview, and delete flows intact.  
+2. Ensure delete confirmation and delete action are independent from preview click handling.  
+3. Keep API integrations unchanged unless required for correctness.  
+4. Fix pagination without breaking search/date filtering or status navigation behavior.  
+5. Deliver minimal-risk changes suitable for handover.
+
+5. Features Implemented  
+1. Evidence metadata retrieval support for robust delete mapping.  
+2. Hover-based delete action preserved for evidence items.  
+3. Delete action uses backend-required audit file identifier.  
+4. Pagination rendering switched to server-driven page data (no duplicate local slicing).  
+5. Pagination total now uses parent-provided total count, enabling next/previous page navigation.
+
+6. Technical Approach  
+1. Reviewed end-to-end click flow for evidence cards and isolated preview trigger conditions from delete trigger interactions.  
+2. Added explicit evidence metadata retrieval path to obtain stable audit file identifiers.  
+3. Removed duplicate client-side pagination slices where server paging was already active.  
+4. Corrected pagination total binding in the table component.  
+5. Verified changes with static checks and production build.
+
+7. Components/Files Modified  
+1. ZoneInstructions.tsx  
+2. auditorApi.ts  
+3. AuditsTable.tsx  
+4. AuditsScreen.tsx
+
+8. API Integration (if any)  
+1. Existing audits list API retained:
+   - GET /api/audits/viewAudits?page={n}  
+2. Existing evidence upload API retained:
+   - POST /api/audits/viewAudits/{auditId}/zones/{zoneId}/instructions/{instructionId}/evidence  
+3. Existing evidence delete API retained:
+   - DELETE /api/audits/viewAudits/{scheduleId}/evidence/{auditFileId}  
+4. Added evidence metadata retrieval usage in frontend:
+   - GET /api/audits/viewAudits/{scheduleId}/instructions/{instructionId}/evidence  
+   - Used to resolve audit_file_id for delete calls.
+
+9. UI/UX Changes
+1. Evidence card interactions refined so delete and preview behave independently.  
+2. Delete affordance remains hover-based and context-aware.  
+3. Audits page pagination now reflects available pages correctly and allows moving to next page.
+
+10. Business Logic  
+1. Evidence deletion now consistently targets backend-required audit_file_id, not URL-derived filename segments.  
+2. After upload/delete, instruction evidence is refreshed so UI reflects the latest server state.  
+3. Pagination ownership is now consistent:
+   - Server determines page data.  
+   - Frontend renders returned page data directly.  
+   - Pagination control uses externally supplied total.
+
+11. Challenges Faced  
+1. Event propagation complexity due to nested interactive elements inside a clickable media card and confirmation overlay behavior.  
+2. Ambiguity between URL/file-name display values and backend delete identifiers.  
+3. Pagination inconsistency caused by combining server paging with additional local slicing and mismatched total source.
+
+12. Solution Implemented  
+1. Evidence flow:
+   - Added instruction-level evidence metadata retrieval.  
+   - Mapped displayed file URLs to metadata records to obtain audit_file_id for delete.  
+   - Kept preview behavior for intentional media clicks while isolating delete interactions.  
+2. Pagination flow:
+   - Removed local page slicing from audits table rendering where server paging already applies.  
+   - Changed pagination total source to parent total to enable page navigation beyond page 1.
+
+13. Testing Performed  
+1. Manual interaction checks:
+   - Upload evidence and confirm card render.  
+   - Open preview by clicking media item.  
+   - Trigger delete confirmation and execute delete.  
+   - Verify refreshed list after delete.  
+2. Pagination checks:
+   - Move from page 1 to page 2 and back.  
+   - Verify row rendering and page state consistency.  
+3. Build verification:
+   - npm run build completed successfully after each major fix.
+
+14. Screenshots (placeholders)  
+1. Screenshot 1: Evidence card with hover delete action visible.  
+2. Screenshot 2: Delete confirmation dialog for selected evidence item.  
+3. Screenshot 3: Evidence preview modal opened via media click.  
+4. Screenshot 4: Audits page pagination showing page transition to next page.  
+5. Screenshot 5: Network requests showing page query updates on pagination.
+
+15. Future Enhancements  
+1. Return explicit totalCount from audits API response to eliminate heuristic total calculations in UI.  
+2. Consolidate pagination pattern across all list screens for consistency.  
+3. Add automated UI tests for preview/delete interaction boundaries.  
+4. Add integration tests for paginated fetch and page-state synchronization.  
+5. Improve evidence mapping resilience by storing and rendering stable IDs directly in UI models.
+
+16. Conclusion  
+The implemented updates resolved critical interaction and navigation issues without disrupting core audit workflows. Evidence actions are now aligned with backend identifiers and expected user behavior, and audits pagination is stable under server-driven paging. The changes are minimal, production-safe, and suitable for project handover and ongoing maintenance.
+
+If you want, I can generate the same document as a formal one-page status report format (manager summary + risk matrix + release notes appendix).
