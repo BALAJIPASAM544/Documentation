@@ -1,0 +1,13 @@
+Implement visual compliance status indicators with color-coded badges on the Analysis Results page"
+
+Specifically:
+
+Green → Comply (Compliant / Yes / Comply)
+
+Red → Non-Comply (Non-Compliant / No / Non-Comply)
+
+Yellow → Unknown (explicit "unknown" value from API)
+
+Slate/Grey → Fallback for any unexpected/unrecognized compliance values
+
+The purpose is to give auditors an instant visual cue of each instruction's compliance status without having to read the text — making it faster to scan through multiple analysis results cards.
