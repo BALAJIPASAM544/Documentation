@@ -1,0 +1,3 @@
+Write engaging marketing content for the following topic.
+Topic: {topic}
+Include: headline, body copy, and a call-to-action.

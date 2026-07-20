@@ -1,0 +1,3 @@
+Research the target audience, market trends, and key insights for the given topic.
+Topic: {topic}
+Return a structured summary with: audience profile, trends, and opportunities.
