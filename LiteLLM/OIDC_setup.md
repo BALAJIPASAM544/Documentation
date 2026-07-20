@@ -38,6 +38,8 @@ Create a new OIDC App Integration(Choose "Web Application" as the application ty
 Configure the Redirect URIs: This is the most critical setting. It tells the security provider exactly where to send the user after they successfully log in.
 Sign-in Redirect URI:https://<your-litellm-domain>/sso/callback
 Sign-out Redirect URI (Optional):https://<your-litellm-domain>
+
+
 Part 2: Gathering the Integration Secrets
 Once the application is registered in your corporate system, it will automatically generate configuration strings. Collect these five specific metrics from the IdP dashboard: 
 Client ID: A unique public identifier string for LiteLLM (e.g., litellm-proxy-prod).
@@ -46,6 +48,9 @@ Authorization Endpoint: The web URL where users are redirected to type their use
 Token Endpoint: The internal API URL LiteLLM calls to exchange login authorization codes for secure user access tokens.
 Userinfo Endpoint: The API endpoint LiteLLM queries to find out the logged-in user's email address and name.
 💡 Quick Tip: Almost all providers publish a single public discovery link ending in .well-known/openid-configuration. If you can find that URL, it lists items 3, 4, and 5 for you automatically.
+
+
+
 Part 3: Injecting the Credentials into LiteLLM
 Now that you have the secrets, you tell LiteLLM to use them. You do this by creating or updating the environment variables where your LiteLLM application runs (your docker container, Kubernetes cluster, or local command line).
 Add these variables to your environment setup:
