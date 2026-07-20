@@ -1,0 +1,28 @@
+                 User
+                  │
+                  ▼
+            Root Agent
+                  │
+                  ▼
+          Review Workflow
+                  │
+        ┌─────────┴─────────┐
+        ▼                   ▼
+   Parallel Execution    Sequential Execution
+        │
+        ├── Bug Agent
+        ├── Optimization Agent
+        ├── Best Practice Agent
+        └── Documentation Agent
+                  │
+                  ▼
+            Result Aggregator
+                  │
+                  ▼
+           ReviewResponse
+                  │
+                  ▼
+             Root Agent
+                  │
+                  ▼
+                User
