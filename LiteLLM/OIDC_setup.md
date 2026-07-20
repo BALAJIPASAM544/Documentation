@@ -11,13 +11,20 @@ User info Endpoint URL
 
 Environmental Infrastructure (Configured inside LiteLLM)
 Once IT returns the credentials, they will be injected directly into the LiteLLM container infrastructure as environment variables:
+
 PROXY_BASE_URL="https://<our-litellm-domain>"
+
 GENERIC_CLIENT_ID="<client-id>"
+
 GENERIC_CLIENT_SECRET="<client-secret>"
+
 GENERIC_AUTHORIZATION_ENDPOINT="<auth-url>"
+
 GENERIC_TOKEN_ENDPOINT="<token-url>"
+
 GENERIC_USERINFO_ENDPOINT="<userinfo-url>"
-GENERIC_SCOPE="openid email profile
+
+GENERIC_SCOPE="openid email profile"
 
 To finalize the setup, we should confirm two things that:
 Scope of OIDC: Are we using OIDC strictly to secure Admin UI/Dashboard access for our internal team, or do you want end-user LLM API calls to be authenticated via JWT tokens?
