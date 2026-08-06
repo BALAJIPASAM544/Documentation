@@ -1,0 +1,2248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beyond General LLMs — Domain Fine-Tuning with QLoRA</title>
+<meta name="description" content="An internal engineering research document on high-performance, low-cost domain fine-tuning with QLoRA — rebuilt as a readable, navigable reference.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+:root{
+  --ink:#0E1116;
+  --surface:#161B23;
+  --surface-2:#1D242F;
+  --surface-3:#242C39;
+  --line:#2B3340;
+  --line-soft:#212836;
+  --text:#E9ECF3;
+  --text-dim:#AEB6C6;
+  --text-faint:#727C8F;
+  --frozen:#7C8AA8;      /* cool slate = frozen base weights */
+  --frozen-soft:rgba(124,138,168,0.14);
+  --trainable:#FF8F4D;   /* warm amber = trainable LoRA path */
+  --trainable-soft:rgba(255,143,77,0.14);
+  --teal:#5FE2C9;        /* data / links / secondary accent */
+  --teal-soft:rgba(95,226,201,0.12);
+  --danger:#FF6B6B;
+  --radius:14px;
+  --maxw:1240px;
+  --sidebar-w:296px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important;} }
+
+body{
+  margin:0;
+  background:var(--ink);
+  color:var(--text);
+  font-family:'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+  font-size:16.5px;
+  line-height:1.65;
+  -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--trainable); color:#1A1206; }
+
+a{ color:var(--teal); text-decoration:none; }
+a:hover{ text-decoration:underline; }
+:focus-visible{ outline:2px solid var(--trainable); outline-offset:3px; border-radius:4px; }
+
+h1,h2,h3,h4{ font-family:'Space Grotesk', ui-sans-serif, sans-serif; color:var(--text); letter-spacing:-0.01em; }
+code, .mono{ font-family:'IBM Plex Mono', ui-monospace, monospace; }
+p code, li code{
+  background:var(--surface-3); color:var(--teal); padding:0.14em 0.42em; border-radius:5px;
+  font-size:0.88em; border:1px solid var(--line);
+}
+pre{
+  background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+  padding:16px 18px; overflow-x:auto; font-family:'IBM Plex Mono', monospace; font-size:0.87em; color:var(--text-dim);
+}
+pre code{ background:none; border:none; padding:0; color:inherit; }
+
+/* ---------- Progress bar ---------- */
+#progress{
+  position:fixed; top:0; left:0; height:3px; width:0%; z-index:200;
+  background:linear-gradient(90deg, var(--frozen), var(--trainable));
+  transition:width 0.08s linear;
+}
+
+/* ---------- Top bar (mobile nav trigger) ---------- */
+.topbar{
+  position:sticky; top:0; z-index:150; display:none;
+  align-items:center; justify-content:space-between;
+  padding:12px 18px; background:rgba(14,17,22,0.92); backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line-soft);
+}
+.topbar .brand{ font-family:'Space Grotesk'; font-weight:600; font-size:14px; }
+.topbar .brand .accent{ color:var(--trainable); }
+.nav-toggle{
+  background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+  border-radius:8px; padding:8px 12px; font-family:'IBM Plex Mono'; font-size:12px; cursor:pointer;
+}
+
+/* ---------- Layout ---------- */
+.layout{ display:flex; max-width:var(--maxw); margin:0 auto; align-items:flex-start; }
+.sidebar{
+  width:var(--sidebar-w); flex:none; position:sticky; top:0; height:100vh;
+  overflow-y:auto; padding:28px 14px 40px 28px; border-right:1px solid var(--line-soft);
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent;
+}
+.sidebar::-webkit-scrollbar{ width:6px; }
+.sidebar::-webkit-scrollbar-thumb{ background:var(--line); border-radius:6px; }
+
+.sb-brand{ display:flex; align-items:center; gap:10px; margin-bottom:22px; padding-right:8px;}
+.sb-mark{
+  width:30px; height:30px; border-radius:8px; flex:none;
+  background:linear-gradient(135deg, var(--frozen) 0%, var(--frozen) 46%, var(--trainable) 54%, var(--trainable) 100%);
+}
+.sb-brand-text{ font-family:'Space Grotesk'; font-size:13.5px; font-weight:600; line-height:1.25; color:var(--text); }
+.sb-brand-text span{ display:block; font-family:'IBM Plex Mono'; font-weight:400; font-size:10.5px; color:var(--text-faint); letter-spacing:0.04em; text-transform:uppercase; margin-top:2px;}
+
+.sb-section-label{
+  font-family:'IBM Plex Mono'; font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  color:var(--text-faint); margin:20px 4px 8px;
+}
+.toc{ list-style:none; margin:0; padding:0; }
+.toc li{ margin:1px 0; }
+.toc a{
+  display:flex; gap:10px; align-items:baseline; color:var(--text-dim); text-decoration:none;
+  padding:7px 10px; border-radius:8px; font-size:13.6px; line-height:1.35;
+  border-left:2px solid transparent;
+}
+.toc a .n{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--text-faint); flex:none; width:18px; }
+.toc a:hover{ background:var(--surface-2); color:var(--text); }
+.toc a.active{ background:var(--trainable-soft); color:var(--text); border-left-color:var(--trainable); }
+.toc a.active .n{ color:var(--trainable); }
+
+.main{ flex:1; min-width:0; padding:0 0 100px; }
+
+/* ---------- Hero ---------- */
+.hero{
+  position:relative; padding:76px 56px 54px; overflow:hidden;
+  border-bottom:1px solid var(--line-soft);
+  background:
+    radial-gradient(900px 420px at 82% -10%, rgba(255,143,77,0.10), transparent 60%),
+    radial-gradient(700px 380px at -5% 10%, rgba(124,138,168,0.14), transparent 55%);
+}
+.eyebrow{
+  display:inline-flex; align-items:center; gap:8px; font-family:'IBM Plex Mono'; font-size:11.5px;
+  letter-spacing:0.12em; text-transform:uppercase; color:var(--text-faint);
+  border:1px solid var(--line); padding:6px 12px; border-radius:100px; margin-bottom:22px;
+}
+.eyebrow .dot{ width:6px; height:6px; border-radius:50%; background:var(--trainable); }
+.hero h1{
+  font-size:clamp(2.1rem, 4.2vw, 3.35rem); line-height:1.06; font-weight:700; margin:0 0 20px; max-width:16ch;
+}
+.hero h1 .hl{ color:var(--trainable); }
+.hero p.dek{ font-size:1.14rem; color:var(--text-dim); max-width:62ch; margin:0 0 30px; }
+.hero-meta{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:44px; }
+.pill{
+  font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--text-dim); background:var(--surface-2);
+  border:1px solid var(--line); padding:6px 12px; border-radius:100px;
+}
+
+/* Signature: LoRA decomposition visual */
+.signature{
+  display:flex; align-items:center; gap:26px; flex-wrap:wrap;
+  background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:26px 30px;
+}
+.sig-eq{ display:flex; align-items:center; gap:16px; font-family:'IBM Plex Mono'; }
+.sig-mat{ display:grid; gap:3px; }
+.sig-cell{ background:var(--frozen); border-radius:2px; opacity:0.85; }
+.sig-cell.train{ background:var(--trainable); }
+.mat-w0 .sig-cell{ width:7px; height:7px; }
+.mat-w0{ grid-template-columns:repeat(9,7px); grid-template-rows:repeat(9,7px); }
+.mat-b{ grid-template-columns:repeat(2,7px); grid-template-rows:repeat(9,7px); }
+.mat-b .sig-cell{ width:7px; height:7px; }
+.mat-a{ grid-template-columns:repeat(9,7px); grid-template-rows:repeat(2,7px); }
+.mat-a .sig-cell{ width:7px; height:7px; }
+.sig-op{ font-size:20px; color:var(--text-faint); }
+.sig-label{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--text-faint); text-align:center; margin-top:8px; letter-spacing:0.03em;}
+.sig-caption{ font-size:13.5px; color:var(--text-dim); max-width:32ch; }
+.sig-caption b.frozen-tag{ color:var(--frozen); }
+.sig-caption b.train-tag{ color:var(--trainable); }
+
+/* ---------- Section blocks ---------- */
+.section{ padding:64px 56px; border-bottom:1px solid var(--line-soft); scroll-margin-top:20px; }
+.section:nth-of-type(even){ background:linear-gradient(180deg, rgba(255,255,255,0.012), transparent 220px); }
+.sec-head{ display:flex; align-items:flex-start; gap:20px; margin-bottom:28px; }
+.sec-num{
+  font-family:'Space Grotesk'; font-size:2.5rem; font-weight:700; color:var(--surface-3);
+  -webkit-text-stroke:1.4px var(--line);
+  line-height:1; flex:none;
+}
+.sec-head h2{ font-size:1.9rem; margin:6px 0 0; }
+.lead{ font-size:1.06rem; color:var(--text-dim); }
+.lead p:first-child{ margin-top:0; }
+
+.section h3{ font-size:1.22rem; margin:38px 0 12px; color:var(--text); }
+.section h3:first-of-type{ margin-top:30px; }
+.section p{ color:var(--text-dim); }
+.section p strong{ color:var(--text); }
+.section ul, .section ol{ color:var(--text-dim); padding-left:1.3em; }
+.section li{ margin:6px 0; }
+.section li strong{ color:var(--text); }
+
+/* tables */
+.section table{
+  width:100%; border-collapse:collapse; margin:18px 0 26px; font-size:14.6px;
+  background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden;
+}
+.section th, .section td{ padding:11px 14px; text-align:left; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+.section th{
+  background:var(--surface-3); font-family:'IBM Plex Mono'; font-size:11.5px; text-transform:uppercase;
+  letter-spacing:0.05em; color:var(--text-dim); font-weight:500;
+}
+.section tr:last-child td{ border-bottom:none; }
+.section tr:hover td{ background:rgba(255,255,255,0.015); }
+.table-wrap{ overflow-x:auto; }
+
+/* diagrams */
+.diagram{
+  background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:22px;
+  margin:22px 0; overflow-x:auto;
+}
+.diagram-label{
+  font-family:'IBM Plex Mono'; font-size:10.5px; text-transform:uppercase; letter-spacing:0.1em;
+  color:var(--text-faint); margin-bottom:10px;
+}
+.diagram pre.mermaid{ background:transparent; border:none; padding:0; margin:0; }
+.diagram svg{ max-width:100%; }
+
+/* callouts */
+.callout{
+  border-radius:12px; padding:22px 24px; margin:30px 0; border:1px solid var(--line);
+}
+.callout h4{
+  display:flex; align-items:center; gap:9px; margin:0 0 14px; font-size:0.95rem;
+  text-transform:uppercase; letter-spacing:0.06em; font-family:'IBM Plex Mono'; font-weight:600;
+}
+.callout ul{ margin:0; }
+.callout-icon{ font-size:11px; }
+.callout-takeaways{ background:var(--frozen-soft); border-color:rgba(124,138,168,0.35); }
+.callout-takeaways h4{ color:var(--frozen); }
+.callout-exercise{ background:var(--teal-soft); border-color:rgba(95,226,201,0.3); }
+.callout-exercise h4{ color:var(--teal); }
+.callout-interview{ background:var(--trainable-soft); border-color:rgba(255,143,77,0.3); }
+.callout-interview h4{ color:var(--trainable); }
+
+/* interview accordion */
+.interview-list{ display:flex; flex-direction:column; gap:8px; }
+.interview-item{ background:var(--surface); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.interview-q{
+  width:100%; display:flex; align-items:center; gap:12px; text-align:left; cursor:pointer;
+  background:none; border:none; color:var(--text); padding:13px 16px; font-family:'IBM Plex Sans';
+  font-size:14.5px;
+}
+.interview-q .q-index{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--trainable); flex:none; }
+.interview-q .q-text{ flex:1; }
+.interview-q .q-toggle{ font-family:'IBM Plex Mono'; color:var(--text-faint); flex:none; transition:transform .18s ease; }
+.interview-item.open .q-toggle{ transform:rotate(45deg); color:var(--trainable); }
+.interview-a{ max-height:0; overflow:hidden; transition:max-height .22s ease, padding .22s ease; padding:0 16px; }
+.interview-a p{ margin:0 0 14px; font-size:13.6px; color:var(--text-faint); }
+.interview-item.open .interview-a{ max-height:120px; padding:0 16px 4px; }
+
+/* progress dots for reading */
+.read-toggle{
+  display:inline-flex; align-items:center; gap:6px; font-family:'IBM Plex Mono'; font-size:11px;
+  color:var(--text-faint); background:var(--surface-2); border:1px solid var(--line); padding:5px 10px;
+  border-radius:100px; cursor:pointer; margin-top:6px;
+}
+.read-toggle.done{ color:var(--teal); border-color:rgba(95,226,201,0.4); }
+.read-toggle .box{ width:9px; height:9px; border-radius:2px; border:1.4px solid currentColor; }
+.read-toggle.done .box{ background:var(--teal); }
+
+/* footer */
+.doc-footer{ padding:56px 56px 90px; color:var(--text-faint); font-size:13px; }
+.doc-footer .rule{ height:1px; background:var(--line-soft); margin-bottom:28px; }
+.back-top{
+  position:fixed; bottom:26px; right:26px; z-index:120;
+  width:44px; height:44px; border-radius:50%; background:var(--surface-2); border:1px solid var(--line);
+  color:var(--text-dim); display:flex; align-items:center; justify-content:center; cursor:pointer;
+  opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;
+}
+.back-top.show{ opacity:1; pointer-events:auto; }
+.back-top:hover{ color:var(--trainable); border-color:var(--trainable); transform:translateY(-2px); }
+
+/* glossary special layout */
+.glossary-grid{ display:grid; grid-template-columns:1fr; gap:2px; }
+.glossary-grid table{ font-size:14px; }
+.glossary-grid td:first-child{ font-family:'IBM Plex Mono'; color:var(--trainable); white-space:nowrap; font-weight:500; }
+
+/* responsive */
+@media (max-width:980px){
+  .sidebar{ position:fixed; left:0; top:0; height:100dvh; z-index:180; background:var(--ink);
+    transform:translateX(-104%); transition:transform .24s ease; width:82vw; max-width:340px;
+    padding-top:70px; border-right:1px solid var(--line); }
+  .sidebar.open{ transform:translateX(0); box-shadow:20px 0 60px rgba(0,0,0,0.5); }
+  .topbar{ display:flex; }
+  .hero{ padding:44px 22px 34px; }
+  .section{ padding:44px 22px; }
+  .doc-footer{ padding:40px 22px 70px; }
+  .sec-num{ font-size:1.8rem; }
+  .sec-head h2{ font-size:1.45rem; }
+  .signature{ padding:20px; }
+}
+@media (min-width:981px){
+  .nav-toggle{ display:none; }
+}
+.scrim{ position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:170; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+.scrim.show{ opacity:1; pointer-events:auto; }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div class="scrim" id="scrim"></div>
+
+<div class="topbar">
+  <div class="brand">QLoRA<span class="accent">/</span>Field Guide</div>
+  <button class="nav-toggle" id="navToggle" aria-expanded="false" aria-controls="sidebar">Contents</button>
+</div>
+
+<div class="layout">
+  <nav class="sidebar" id="sidebar" aria-label="Table of contents">
+    <div class="sb-brand">
+      <div class="sb-mark" aria-hidden="true"></div>
+      <div class="sb-brand-text">Domain Fine-Tuning<span>Engineering field guide</span></div>
+    </div>
+    <div class="sb-section-label">Read</div>
+    <ul class="toc" id="tocList"><!--TOC--></ul>
+  </nav>
+
+  <main class="main">
+    <header class="hero">
+      <div class="eyebrow"><span class="dot"></span> Internal engineering research document</div>
+      <h1>Beyond General LLMs: domain fine-tuning with <span class="hl">QLoRA</span></h1>
+      <p class="dek">A field guide to fine-tuning small, open-weight models on a single GPU — for teams tired of paying frontier-API prices for narrow, repeatable work.</p>
+      <div class="hero-meta">
+        <span class="pill">22 sections</span>
+        <span class="pill">AI / ML Engineers</span>
+        <span class="pill">Technical Architects</span>
+        <span class="pill">Engineering Managers</span>
+        <span class="pill">~45 min read</span>
+      </div>
+      <div class="signature">
+        <div class="sig-eq">
+          <div>
+            <div class="sig-mat mat-w0" id="matW0"></div>
+            <div class="sig-label">W₀ — frozen base</div>
+          </div>
+          <div class="sig-op">+</div>
+          <div>
+            <div class="sig-mat mat-b" id="matB"></div>
+            <div class="sig-label">B</div>
+          </div>
+          <div class="sig-op">·</div>
+          <div>
+            <div class="sig-mat mat-a" id="matA"></div>
+            <div class="sig-label">A</div>
+          </div>
+        </div>
+        <p class="sig-caption">Every section in this guide follows the same shape as the technique itself: <b class="frozen-tag">most of it stays frozen</b> — established ML fundamentals — while a <b class="train-tag">small, high-leverage part updates</b> to your specific domain.</p>
+      </div>
+    </header>
+
+    <div id="sections"><section class="section" id="sec-1" data-num="1" data-title="Executive Summary">
+  <div class="sec-head">
+    <div class="sec-num">1</div>
+    <h2>Executive Summary</h2>
+  </div>
+  <h3 id="1-1-1-motivation">1.1 Motivation</h3><p>Over the past three years, enterprises defaulted to routing nearly every AI workload — chat, extraction, summarization, classification, code generation — through a small number of frontier proprietary APIs (GPT-4-class, Claude-class, Gemini-class models). This "one model for everything" pattern was the fastest path to a working prototype, but it is increasingly the wrong default for production systems with narrow, repeatable domains.</p>
+<p><strong>Why enterprises are moving away from always calling large proprietary models:</strong></p>
+<ul>
+<li><strong>Cost does not scale linearly with value.</strong> A 400B+ parameter model charges the same per-token rate whether the task is "summarize this internal ticket" or "draft a multi-step legal opinion." Most enterprise workloads are narrow — the marginal capability of a frontier generalist model is wasted on them.</li>
+<li><strong>Latency is dominated by model size</strong>, not task complexity. A vulnerability triage classifier does not need 100+ billion parameters of world knowledge to decide severity — it needs precise recall of a narrow schema.</li>
+<li><strong>Data governance friction.</strong> Sending proprietary source code, patient records, or financial statements to a third-party API introduces contractual, regulatory, and audit overhead that in-house or VPC-hosted models avoid.</li>
+<li><strong>Vendor concentration risk.</strong> A pricing change, rate limit, deprecation, or policy shift at a single vendor becomes a business continuity risk when every workload depends on one external API.</li>
+</ul>
+<h3 id="1-1-2-business-problem">1.2 Business Problem</h3><p>Engineering leadership is being asked, simultaneously, to (a) reduce AI infrastructure spend, (b) improve domain accuracy and reduce hallucinations, (c) satisfy data residency and privacy requirements, and (d) avoid single-vendor lock-in — while shipping features on the same or faster timeline. These goals appear to conflict with the "call a frontier API" default.</p>
+<h3 id="1-1-3-technical-solution">1.3 Technical Solution</h3><p><strong>Parameter-efficient fine-tuning (PEFT)</strong> — specifically <strong>LoRA</strong> (Low-Rank Adaptation) and its quantized variant <strong>QLoRA</strong> — resolves this tension. Instead of retraining a full foundation model (financially and computationally prohibitive for most teams) or relying entirely on prompting a general model (capped accuracy, high per-call cost), QLoRA lets teams:</p>
+<ul>
+<li>Fine-tune 7B–14B open-weight base models on a <strong>single consumer or mid-tier datacenter GPU</strong> (e.g., one NVIDIA A100 40GB, or even a 24GB card for smaller models).</li>
+<li>Reduce trainable parameters by <strong>99%+</strong> relative to full fine-tuning, while retaining task performance close to full fine-tuning on narrow domains.</li>
+<li>Produce a small adapter (tens to hundreds of MB) that can be merged into the base model or hot-swapped at inference time.</li>
+<li>Deploy the resulting model on-premise, at the edge, or in a private VPC, cutting inference cost by <strong>70–90%</strong> relative to continuous frontier-API usage for high-volume, narrow-domain workloads.</li>
+</ul>
+<p>This document is the engineering research base for a blog series and internal training material describing how, when, and why to apply this approach.</p>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Frontier general-purpose LLMs are a poor default for narrow, high-volume, repeatable enterprise tasks.</li>
+<li>QLoRA makes domain fine-tuning economically and computationally accessible to teams without hyperscale infrastructure.</li>
+<li>The decision is not "prompting vs. fine-tuning" — it's choosing the right tool per workload, and PEFT expands what's affordable to fine-tune.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why doesn't inference cost scale with task complexity in most enterprise LLM deployments?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What are the four business pressures driving domain specialization, and how do they interact?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What is the core trade-off QLoRA is designed to resolve?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-2" data-num="2" data-title="Background">
+  <div class="sec-head">
+    <div class="sec-num">2</div>
+    <h2>Background</h2>
+  </div>
+  <h3 id="2-2-1-evolution-of-llms">2.1 Evolution of LLMs</h3><table>
+<thead>
+<tr>
+<th>Era</th>
+<th>Representative Models</th>
+<th>Characteristic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Statistical NLP (pre-2013)</td>
+<td>n-gram models, CRFs</td>
+<td>Task-specific, no transfer learning</td>
+</tr>
+<tr>
+<td>Word Embeddings (2013–2017)</td>
+<td>Word2Vec, GloVe</td>
+<td>Distributed representations, still shallow</td>
+</tr>
+<tr>
+<td>Seq2Seq / RNN-Attention (2014–2017)</td>
+<td>Bahdanau attention, LSTM-based MT</td>
+<td>Attention mechanism introduced</td>
+</tr>
+<tr>
+<td>Transformer Era (2017–2019)</td>
+<td>Transformer, BERT, GPT-1/2</td>
+<td>Self-attention replaces recurrence; pretrain-then-finetune paradigm</td>
+</tr>
+<tr>
+<td>Scaling Era (2020–2022)</td>
+<td>GPT-3, PaLM, OPT</td>
+<td>Few-shot / in-context learning emerges at scale</td>
+</tr>
+<tr>
+<td>Instruction &amp; Alignment Era (2022–2023)</td>
+<td>InstructGPT, ChatGPT, GPT-4, Claude, Llama 2</td>
+<td>RLHF/RLAIF, chat-tuned models, open-weight ecosystems</td>
+</tr>
+<tr>
+<td>Efficiency &amp; Specialization Era (2023–present)</td>
+<td>Llama 3/4, Mistral, Qwen, Gemma, SLMs, QLoRA-tuned domain models</td>
+<td>Focus shifts from "bigger" to "efficient, specialized, deployable"</td>
+</tr>
+</tbody>
+</table>
+<h3 id="2-2-2-why-gpt-style-decoder-only-transformer-models-became-popular">2.2 Why GPT-Style (Decoder-Only Transformer) Models Became Popular</h3><ul>
+<li><strong>Architectural simplicity at scale</strong>: a single stack of decoder blocks (self-attention + feed-forward) trained with a next-token-prediction objective scales predictably with data and compute (empirically described by the "scaling laws" literature).</li>
+<li><strong>Emergent generality</strong>: at sufficient scale, a single pretraining objective produces a model that performs translation, summarization, reasoning, and code generation without task-specific architectures.</li>
+<li><strong>Zero/few-shot capability</strong>: prompting alone, without any gradient update, can elicit competent task performance — this collapsed the cost of experimentation from "train a model" to "write a prompt."</li>
+</ul>
+<h3 id="2-2-3-challenges-of-general-purpose-models">2.3 Challenges of General-Purpose Models</h3><ul>
+<li><strong>Breadth vs. depth trade-off</strong>: a model trained on a broad internet-scale corpus allocates capacity across every domain; a narrow enterprise domain (e.g., a specific regulatory framework, an internal codebase's conventions, a proprietary product's terminology) is a rounding error in that training distribution.</li>
+<li><strong>Static knowledge cutoff</strong>: general models do not natively know an enterprise's internal systems, recent policy changes, or proprietary taxonomies.</li>
+<li><strong>Cost structure mismatch</strong>: general models are priced (or provisioned) for worst-case complexity, not typical-case simplicity.</li>
+<li><strong>Opaque failure modes</strong>: hallucinations in a general model are hard to systematically suppress via prompting alone, especially for structured, high-precision domain outputs.</li>
+</ul>
+<h3 id="2-2-4-why-domain-specialization-matters">2.4 Why Domain Specialization Matters</h3><p>A domain-specialized model narrows the output distribution to the shapes, vocabulary, and reasoning patterns that matter for a specific task family. This narrowing is precisely what makes small, efficient models competitive with — and sometimes superior to — general frontier models <em>within that domain</em>, while being dramatically cheaper to run.</p>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>LLM evolution has been a progression from task-specific models to general-purpose scaled models, and is now bifurcating toward efficient specialization.</li>
+<li>Generality has a cost: capacity spent on breadth is capacity not spent on domain depth.</li>
+<li>Specialization is not a step backward — it's a targeted reallocation of model capacity toward what a specific workload actually needs.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">What architectural property of decoder-only transformers enabled the scaling-law-driven growth of LLMs?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why can a small, specialized model outperform a much larger general model on a narrow task?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What does "static knowledge cutoff" mean, and why is it a specific problem for enterprise use cases?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-3" data-num="3" data-title="Problem Statement">
+  <div class="sec-head">
+    <div class="sec-num">3</div>
+    <h2>Problem Statement</h2>
+  </div>
+  <div class="lead"><p>Enterprises adopting LLMs at scale consistently encounter six categories of problems:</p></div>
+<h3 id="3-3-1-high-inference-costs">3.1 High Inference Costs</h3><p>Per-token API pricing for frontier models, multiplied across millions of monthly requests, produces operating costs that scale linearly (or worse, with retries and long contexts) with usage — with no ceiling and no ownership of the resulting cost curve.</p>
+<h3 id="3-3-2-hallucinations">3.2 Hallucinations</h3><p>General models generate fluent but factually or procedurally incorrect content when asked about narrow domains outside their training distribution's density — a critical failure mode in regulated or safety-relevant domains (clinical, legal, financial, security).</p>
+<h3 id="3-3-3-domain-knowledge-limitations">3.3 Domain Knowledge Limitations</h3><p>Proprietary terminology, internal system names, non-public regulations, and organization-specific workflows are, by definition, absent or underrepresented in any public pretraining corpus.</p>
+<h3 id="3-3-4-data-privacy">3.4 Data Privacy</h3><p>Sending regulated data (PII, PHI, financial records, source code, trade secrets) to a third-party inference API creates contractual, compliance (GDPR, HIPAA, SOC 2, PCI-DSS), and audit exposure that many enterprises cannot accept for certain workloads.</p>
+<h3 id="3-3-5-vendor-lock-in">3.5 Vendor Lock-In</h3><p>Building critical-path product features on a single external model provider's API creates dependency risk: pricing changes, deprecations, rate limits, and policy shifts are outside the enterprise's control.</p>
+<h3 id="3-3-6-latency">3.6 Latency</h3><p>Large proprietary models, especially under high load or with long contexts, introduce tail latencies unsuitable for real-time or interactive use cases; self-hosted smaller models on optimized inference stacks (vLLM, TensorRT-LLM) offer materially lower and more predictable latency.</p>
+<table>
+<thead>
+<tr>
+<th>Problem</th>
+<th>Root Cause</th>
+<th>PEFT/QLoRA Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>High inference cost</td>
+<td>Pay-per-token pricing on large models</td>
+<td>Smaller fine-tuned models match task accuracy at a fraction of parameter count</td>
+</tr>
+<tr>
+<td>Hallucination</td>
+<td>Domain underrepresented in pretraining</td>
+<td>Fine-tuning anchors outputs in domain-specific patterns</td>
+</tr>
+<tr>
+<td>Domain knowledge gaps</td>
+<td>Proprietary/non-public data</td>
+<td>Fine-tuning injects internal knowledge directly into weights</td>
+</tr>
+<tr>
+<td>Data privacy</td>
+<td>Third-party API data transfer</td>
+<td>Self-hosted fine-tuned models keep data in-VPC/on-prem</td>
+</tr>
+<tr>
+<td>Vendor lock-in</td>
+<td>Single external dependency</td>
+<td>Open-weight base models + owned adapters = full model ownership</td>
+</tr>
+<tr>
+<td>Latency</td>
+<td>Model size, provider queuing</td>
+<td>Smaller model + optimized serving stack = lower, more predictable latency</td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>These six problems compound — a single frontier-API-only architecture is simultaneously the most expensive, least private, and least controllable option.</li>
+<li>Fine-tuning does not address every problem independently; it is a structural fix that improves cost, privacy, and control together.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why is "hallucination" often a symptom of distributional mismatch rather than a model capability failure?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Name three regulatory frameworks that make third-party API calls with regulated data a compliance risk.</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why does self-hosting a smaller model improve latency predictability, not just average latency?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-4" data-num="4" data-title="Domain-Specific Language Models (DSLMs)">
+  <div class="sec-head">
+    <div class="sec-num">4</div>
+    <h2>Domain-Specific Language Models (DSLMs)</h2>
+  </div>
+  <h3 id="4-4-1-definition">4.1 Definition</h3><p>A <strong>Domain-Specific Language Model (DSLM)</strong> is a language model — typically derived from an open-weight foundation model via fine-tuning — whose training data, evaluation criteria, and deployment context are narrowed to a specific industry, task family, or organizational knowledge base. The goal is not maximal general capability but maximal reliability and efficiency within a bounded scope.</p>
+<h3 id="4-4-2-examples-by-domain">4.2 Examples by Domain</h3><table>
+<thead>
+<tr>
+<th>Domain</th>
+<th>Example Focus Areas</th>
+<th>Typical Base Model Size</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Legal</td>
+<td>Contract review, clause extraction, case summarization</td>
+<td>7B–14B</td>
+</tr>
+<tr>
+<td>Financial</td>
+<td>Earnings call analysis, risk memo drafting, regulatory filings QA</td>
+<td>7B–14B</td>
+</tr>
+<tr>
+<td>Clinical / Medical</td>
+<td>Clinical note summarization, differential diagnosis support (with human oversight), coding assistance</td>
+<td>7B–13B</td>
+</tr>
+<tr>
+<td>Cybersecurity</td>
+<td>Vulnerability triage, CVE summarization, log analysis, threat intel extraction</td>
+<td>7B–8B</td>
+</tr>
+<tr>
+<td>Customer Support</td>
+<td>Product-specific troubleshooting, ticket classification, response drafting</td>
+<td>3B–8B</td>
+</tr>
+<tr>
+<td>Code / DevOps</td>
+<td>Internal API usage patterns, IaC generation, code review against internal standards</td>
+<td>7B–14B</td>
+</tr>
+</tbody>
+</table>
+<h3 id="4-4-3-use-cases">4.3 Use Cases</h3><ul>
+<li>Structured extraction from unstructured domain documents (e.g., extracting CVE, CVSS score, affected component from a vulnerability report).</li>
+<li>Domain-constrained conversational assistants (e.g., a support bot that only reasons about one product line).</li>
+<li>Internal copilot tools trained on an organization's own codebase conventions and documentation.</li>
+<li>Regulatory-compliant summarization where outputs must follow a fixed schema and terminology.</li>
+</ul>
+<h3 id="4-4-4-enterprise-adoption-patterns">4.4 Enterprise Adoption Patterns</h3><p>Enterprises typically adopt DSLMs incrementally:</p>
+<ol>
+<li><strong>Prompt-only baseline</strong> on a general API (fastest, cheapest to start, weakest guarantees).</li>
+<li><strong>Retrieval-augmented generation (RAG)</strong> on top of a general model (adds grounding, does not change model behavior/style/precision).</li>
+<li><strong>PEFT-tuned open-weight model</strong> (this document's focus) — combines the grounding benefits achievable via RAG with behavior and precision changes baked into weights, at a fraction of full fine-tuning cost.</li>
+<li><strong>Full fine-tuning or continued pretraining</strong> (rare — reserved for the largest, most resourced organizations with very high-volume, very narrow, long-lived use cases).</li>
+</ol>
+<p>Most mature enterprise deployments today combine <strong>stage 2 and stage 3</strong>: a QLoRA-tuned domain model with a RAG layer for facts that change more frequently than a retraining cadence allows.</p>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>A DSLM trades general capability for domain reliability and efficiency.</li>
+<li>DSLMs and RAG are complementary, not competing — fine-tuning changes <em>how</em> a model reasons and communicates; RAG supplies <em>current facts</em>.</li>
+<li>Enterprise adoption is staged, not a single leap from "prompt a frontier API" to "fine-tune everything."</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">What is the difference between what fine-tuning changes in a model versus what RAG changes?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why might an organization choose a 7B fine-tuned model over a 70B+ general model for a narrow task?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Describe a use case where combining QLoRA fine-tuning with RAG is preferable to either alone.</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-5" data-num="5" data-title="Understanding Fine-Tuning">
+  <div class="sec-head">
+    <div class="sec-num">5</div>
+    <h2>Understanding Fine-Tuning</h2>
+  </div>
+  <div class="lead"><p>Before covering PEFT, it's necessary to understand the full spectrum of adaptation techniques it sits within.</p></div>
+<h3 id="5-5-1-full-fine-tuning">5.1 Full Fine-Tuning</h3><p><strong>Problem it solves:</strong> Maximizes task-specific performance by allowing every model parameter to update in response to new training data.</p>
+<p><strong>How it works:</strong> Standard supervised training — forward pass, loss computation, backpropagation through <em>all</em> parameters, optimizer step on <em>all</em> parameters. For a 7B-parameter model, this means 7 billion parameters have gradients and optimizer states (for Adam, typically 2 additional FP32 buffers per parameter — momentum and variance), pushing memory requirements to 4–6x the model's own footprint.</p>
+<p><strong>Cost implication:</strong> A 7B model in FP16 (~14GB of weights) requires on the order of 70–120GB of GPU memory to full fine-tune with Adam-family optimizers (weights + gradients + optimizer states + activations), typically necessitating multi-GPU setups. This is the core problem PEFT was invented to solve.</p>
+<h3 id="5-5-2-transfer-learning">5.2 Transfer Learning</h3><p><strong>Problem it solves:</strong> Reduces the data and compute needed to reach good performance on a new task by reusing representations learned on a large, related source task.</p>
+<p><strong>How it works:</strong> A model pretrained on a broad objective (e.g., next-token prediction over internet text) is used as an initialization point, then adapted — via full fine-tuning, PEFT, or feature extraction — to a downstream task with far less task-specific data than training from scratch would require.</p>
+<h3 id="5-5-3-instruction-tuning">5.3 Instruction Tuning</h3><p><strong>Problem it solves:</strong> Raw pretrained ("base") models are next-token predictors, not compliant assistants — they complete text patterns, not follow instructions.</p>
+<p><strong>How it works:</strong> The model is fine-tuned on (instruction, response) pairs across a diverse task mixture, teaching it to interpret an instruction and produce an appropriately-formatted, on-task response rather than an arbitrary continuation.</p>
+<h3 id="5-5-4-supervised-fine-tuning-sft">5.4 Supervised Fine-Tuning (SFT)</h3><p><strong>Problem it solves:</strong> Adapts a model to a specific task or domain using labeled input-output examples, the umbrella technique under which instruction tuning and most domain fine-tuning (including the QLoRA workflows in this document) fall.</p>
+<p><strong>How it works:</strong> Standard cross-entropy loss between model-generated tokens and target tokens in curated (prompt, completion) pairs. This is the primary technique used in the sample project in Section 13.</p>
+<h3 id="5-5-5-rlhf-overview-only">5.5 RLHF (Overview Only)</h3><p><strong>Problem it solves:</strong> SFT teaches a model to imitate example responses, but doesn't directly optimize for <em>human preference</em> between multiple plausible responses — RLHF closes that gap.</p>
+<p><strong>How it works (high level):</strong>
+1. Collect human preference data: given a prompt and multiple model completions, humans rank or choose the better one.
+2. Train a <strong>reward model</strong> to predict human preference scores from (prompt, response) pairs.
+3. Fine-tune the base (typically SFT-tuned) model using reinforcement learning (historically PPO; increasingly DPO/simplified preference-optimization methods that skip the explicit reward model) to maximize the learned reward, with a KL-divergence penalty against the original SFT model to prevent degenerate drift.</p>
+<p>RLHF (and successors like DPO) is typically <strong>out of scope</strong> for narrow enterprise domain fine-tuning — SFT alone, on a well-curated dataset, is usually sufficient when the goal is precision and domain grounding rather than open-ended preference alignment. It's covered here for completeness of the fine-tuning landscape.</p>
+<table>
+<thead>
+<tr>
+<th>Technique</th>
+<th>Primary Goal</th>
+<th>Data Required</th>
+<th>Typical Enterprise Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full Fine-Tuning</td>
+<td>Maximum adaptation</td>
+<td>Large</td>
+<td>Rare — reserved for high-resource, high-volume cases</td>
+</tr>
+<tr>
+<td>Transfer Learning</td>
+<td>Reduce data/compute needs</td>
+<td>Small–medium</td>
+<td>Foundational concept, not a standalone technique</td>
+</tr>
+<tr>
+<td>Instruction Tuning</td>
+<td>Teach instruction-following</td>
+<td>Medium–large, diverse</td>
+<td>Usually inherited from base model choice</td>
+</tr>
+<tr>
+<td>Supervised Fine-Tuning</td>
+<td>Task/domain adaptation</td>
+<td>Small–medium, curated</td>
+<td><strong>Primary technique for enterprise DSLMs</strong></td>
+</tr>
+<tr>
+<td>RLHF / DPO</td>
+<td>Preference alignment</td>
+<td>Preference-labeled pairs</td>
+<td>Rare in narrow domains; common in general assistants</td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Full fine-tuning's memory cost — not its effectiveness — is the reason PEFT exists.</li>
+<li>SFT is the workhorse technique for enterprise domain fine-tuning; RLHF solves a different problem (preference alignment) that most narrow domains don't need.</li>
+<li>Instruction tuning is what turns a base model into something promptable; most enterprise fine-tuning starts from an already-instruction-tuned checkpoint.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why does Adam-family optimization roughly triple the memory footprint of full fine-tuning relative to just storing the model weights?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the practical difference between starting fine-tuning from a "base" model versus an "instruct" model?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why might an enterprise deliberately skip RLHF/DPO for a domain fine-tuning project?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-6" data-num="6" data-title="Parameter-Efficient Fine-Tuning (PEFT)">
+  <div class="sec-head">
+    <div class="sec-num">6</div>
+    <h2>Parameter-Efficient Fine-Tuning (PEFT)</h2>
+  </div>
+  <h3 id="6-6-1-what-problem-does-peft-solve">6.1 What Problem Does PEFT Solve?</h3><p>Full fine-tuning requires updating and storing gradients/optimizer states for every parameter, which is memory-prohibitive for models beyond a few hundred million parameters on commodity hardware, and produces a full model-sized checkpoint (tens of GB) <em>per task</em> — untenable when an enterprise wants many task-specific variants.</p>
+<h3 id="6-6-2-how-peft-works-general-principle">6.2 How PEFT Works (General Principle)</h3><p>PEFT techniques freeze the vast majority of the pretrained model's weights and introduce a small number of new, trainable parameters — inserted into the architecture in various ways — that are updated during fine-tuning. Because gradients and optimizer states are only needed for this small parameter subset, memory requirements drop dramatically, and the resulting artifact (the "adapter") is small enough to store many domain variants cheaply and swap between them at runtime.</p>
+<h3 id="6-6-3-peft-technique-comparison">6.3 PEFT Technique Comparison</h3><table>
+<thead>
+<tr>
+<th>Technique</th>
+<th>Mechanism</th>
+<th>Trainable Params (typical)</th>
+<th>Inference Overhead</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Adapter Tuning</strong></td>
+<td>Small bottleneck feed-forward layers inserted between transformer sublayers</td>
+<td>0.5–5%</td>
+<td>Adds layers → small latency cost</td>
+<td>Earliest PEFT approach (Houlsby et al., 2019)</td>
+</tr>
+<tr>
+<td><strong>Prefix Tuning</strong></td>
+<td>Learnable continuous vectors prepended to keys/values at every layer</td>
+<td>0.1–1%</td>
+<td>Consumes context budget</td>
+<td>Effective for generation tasks; harder to optimize</td>
+</tr>
+<tr>
+<td><strong>Prompt Tuning</strong></td>
+<td>Learnable "soft prompt" embeddings prepended to input only (not every layer)</td>
+<td>&lt;0.1%</td>
+<td>Minimal, but consumes input tokens</td>
+<td>Scales well with model size; weaker on smaller models</td>
+</tr>
+<tr>
+<td><strong>IA3</strong></td>
+<td>Learned vectors that rescale (multiply) activations in attention and FFN</td>
+<td>&lt;0.01%</td>
+<td>Negligible</td>
+<td>Extremely lightweight; strong on classification-style tasks</td>
+</tr>
+<tr>
+<td><strong>LoRA</strong></td>
+<td>Learned low-rank update matrices added to existing weight matrices</td>
+<td>0.1–3%</td>
+<td><strong>Zero at inference if merged</strong></td>
+<td>Most widely adopted; strong accuracy/efficiency balance</td>
+</tr>
+<tr>
+<td><strong>QLoRA</strong></td>
+<td>LoRA applied on top of a 4-bit quantized frozen base model</td>
+<td>Same as LoRA</td>
+<td>Zero if merged (post-dequantization)</td>
+<td>Enables fine-tuning on dramatically less GPU memory than LoRA alone</td>
+</tr>
+</tbody>
+</table>
+<h3 id="6-6-4-why-lora-qlora-dominate-enterprise-adoption">6.4 Why LoRA/QLoRA Dominate Enterprise Adoption</h3><ul>
+<li><strong>Zero inference-time latency overhead</strong> once adapter weights are merged back into the base weight matrices (unlike adapters, prefix tuning, and prompt tuning, which retain a permanent forward-pass cost or context-budget cost).</li>
+<li><strong>Composable and swappable</strong>: multiple LoRA adapters (one per domain/task) can be trained against the same frozen base model and hot-swapped at serve time.</li>
+<li><strong>Mature, well-supported tooling</strong> (Hugging Face <code>peft</code>, <code>bitsandbytes</code>) with production-grade serving support (vLLM multi-LoRA serving).</li>
+<li><strong>QLoRA's specific innovation</strong> — combining 4-bit quantization of the frozen base with LoRA — is what makes fine-tuning a 7B–13B model feasible on a single consumer/prosumer GPU, which is the central economic unlock this document is about.</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>All PEFT techniques share the same core idea: freeze almost everything, train a small injected parameter set.</li>
+<li>LoRA and QLoRA are preferred in production because merged adapters add zero inference-time overhead — a decisive advantage over adapter/prefix/prompt tuning.</li>
+<li>QLoRA's contribution is specifically about <em>training-time</em> memory efficiency, not a new adaptation mechanism — it layers quantization under LoRA.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why do adapter tuning and prefix tuning retain inference-time overhead, while LoRA does not?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the fundamental trade-off IA3 makes compared to LoRA?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why does the number of trainable parameters matter for both training cost <em>and</em> deployment flexibility (multi-tenant adapters)?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-7" data-num="7" data-title="Deep Dive into LoRA">
+  <div class="sec-head">
+    <div class="sec-num">7</div>
+    <h2>Deep Dive into LoRA</h2>
+  </div>
+  <h3 id="7-7-1-what-problem-does-lora-solve">7.1 What Problem Does LoRA Solve?</h3><p>Full fine-tuning updates a weight matrix <code>W</code> (dimensions <code>d × k</code>) directly, requiring gradients and optimizer state proportional to <code>d × k</code> for <em>every</em> such matrix in the model. LoRA's insight (Hu et al., 2021): the <em>change</em> required to adapt a pretrained weight matrix to a new task is empirically low-rank — it doesn't need the full <code>d × k</code> degrees of freedom to be expressed effectively.</p>
+<h3 id="7-7-2-mathematical-intuition">7.2 Mathematical Intuition</h3><p>For a pretrained weight matrix <code>W₀ ∈ ℝ^(d×k)</code>, full fine-tuning would learn an update <code>ΔW ∈ ℝ^(d×k)</code> such that the adapted weight is <code>W = W₀ + ΔW</code>.</p>
+<p>LoRA constrains <code>ΔW</code> to be low-rank by factoring it as:</p>
+<pre><code>ΔW = B · A
+</code></pre>
+<p>where <code>B ∈ ℝ^(d×r)</code>, <code>A ∈ ℝ^(r×k)</code>, and the rank <code>r ≪ min(d, k)</code> (typically <code>r = 4</code> to <code>64</code>, versus <code>d, k</code> often in the thousands).</p>
+<p>The forward pass becomes:</p>
+<pre><code>h = W₀x + ΔWx = W₀x + BAx
+</code></pre>
+<p><code>W₀</code> is <strong>frozen</strong> (no gradient computed or stored for it); only <code>A</code> and <code>B</code> are trainable. <code>A</code> is typically initialized with small random values (e.g., Kaiming/Gaussian), and <code>B</code> is initialized to <strong>zero</strong>, so that <code>ΔW = BA = 0</code> at the start of training — the adapted model is mathematically identical to the base model before any training occurs, guaranteeing a stable starting point.</p>
+<p>A scaling factor <code>α</code> (alpha) is applied: <code>ΔW = (α / r) · BA</code>, which controls the magnitude of the LoRA update relative to the base weights, decoupled from the choice of rank <code>r</code>.</p>
+<h3 id="7-7-3-trainable-parameter-count">7.3 Trainable Parameter Count</h3><p>For a matrix <code>W₀</code> of size <code>d × k</code>:</p>
+<ul>
+<li>Full fine-tuning trainable parameters: <code>d × k</code></li>
+<li>LoRA trainable parameters: <code>d × r + r × k = r × (d + k)</code></li>
+</ul>
+<p><strong>Worked example:</strong> A typical attention projection matrix in a 7B model might be <code>d = k = 4096</code>.</p>
+<ul>
+<li>Full fine-tuning: <code>4096 × 4096 = 16,777,216</code> parameters for this one matrix.</li>
+<li>LoRA with <code>r = 8</code>: <code>8 × (4096 + 4096) = 65,536</code> parameters — a <strong>256x reduction</strong> for this matrix.</li>
+</ul>
+<p>Applied across all attention projection matrices (<code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code>) in a 32-layer 7B model, LoRA typically yields <strong>total trainable parameters in the tens of millions</strong>, versus <strong>7 billion</strong> for full fine-tuning — commonly cited as <strong>0.1–1% of total model parameters</strong>.</p>
+<h3 id="7-7-4-memory-savings">7.4 Memory Savings</h3><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Full Fine-Tuning</th>
+<th>LoRA</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Frozen base weights</td>
+<td>N/A (all trainable)</td>
+<td>Stored, no gradient</td>
+</tr>
+<tr>
+<td>Trainable weights</td>
+<td>100% of model</td>
+<td>0.1–3% of model</td>
+</tr>
+<tr>
+<td>Gradients</td>
+<td>Full model size</td>
+<td>Only LoRA params</td>
+</tr>
+<tr>
+<td>Optimizer states (Adam: 2x params)</td>
+<td>2x full model size</td>
+<td>2x LoRA params (negligible)</td>
+</tr>
+<tr>
+<td>Checkpoint size per task</td>
+<td>Full model (tens of GB)</td>
+<td>Tens to low hundreds of MB</td>
+</tr>
+</tbody>
+</table>
+<h3 id="7-7-5-diagram-lora-forward-pass-described">7.5 Diagram — LoRA Forward Pass (described)</h3><div class="diagram"><div class="diagram-label">System diagram</div><pre class="mermaid">flowchart LR
+    X["Input activation x"] --> W0["Frozen pretrained weight W0 (d x k)"]
+    X --> A["Trainable matrix A (r x k)"]
+    A --> B["Trainable matrix B (d x r)"]
+    W0 --> Sum["Sum: h = W0*x + (alpha/r)*B*A*x"]
+    B --> Sum
+    Sum --> H["Output activation h"]
+</pre></div>
+<p><strong>Reading the diagram:</strong> the input <code>x</code> flows through two parallel paths — the frozen original weight <code>W₀</code>, and the new low-rank path <code>A</code> then <code>B</code> — and the two outputs are summed. Only the <code>A</code>/<code>B</code> path accumulates gradients.</p>
+<h3 id="7-7-6-which-layers-to-target">7.6 Which Layers to Target</h3><p>LoRA can be applied to any linear layer, but empirically the attention projections (<code>q_proj</code>, <code>k_proj</code>, <code>v_proj</code>, <code>o_proj</code>) and, increasingly, the MLP/feed-forward projections (<code>gate_proj</code>, <code>up_proj</code>, <code>down_proj</code> in Llama-family architectures) are targeted. Applying LoRA to <em>more</em> layer types generally improves task performance at a modest additional parameter/memory cost.</p>
+<table>
+<thead>
+<tr>
+<th>Target Modules</th>
+<th>Relative Trainable Params</th>
+<th>Typical Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Attention only (<code>q_proj</code>, <code>v_proj</code>)</td>
+<td>Lowest</td>
+<td>Fast experimentation, minor tasks</td>
+</tr>
+<tr>
+<td>All attention projections (<code>q,k,v,o</code>)</td>
+<td>Low–moderate</td>
+<td>Common default</td>
+</tr>
+<tr>
+<td>Attention + MLP projections</td>
+<td>Moderate</td>
+<td>Best accuracy/cost balance for domain SFT</td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>LoRA exploits the empirical observation that task-adaptation updates are low-rank, not that the model itself is low-rank.</li>
+<li>Zero-initializing <code>B</code> guarantees the fine-tuned model starts identical to the base model.</li>
+<li>Rank <code>r</code> and alpha <code>α</code> are the two primary hyperparameters controlling capacity and update magnitude respectively.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Derive the parameter count formula for a LoRA adapter on a <code>d × k</code> matrix and explain each term.</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why is <code>B</code> initialized to zero while <code>A</code> is initialized randomly?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What happens to inference latency if you merge <code>BA</code> into <code>W₀</code> versus keeping them as separate computation paths?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+<aside class="callout callout-exercise"><h4><span class="callout-icon" aria-hidden="true">&#9651;</span>Try it yourself</h4><p>Using Hugging Face <code>peft</code>, instrument a small model (e.g., a 1B-parameter open model) and print the ratio of trainable to total parameters for <code>r = 4, 8, 16, 32</code> with <code>target_modules=["q_proj","v_proj"]</code>. Plot trainable-parameter-percentage against <code>r</code>.</p>
+<hr /></aside>
+</section>
+<section class="section" id="sec-8" data-num="8" data-title="Deep Dive into QLoRA">
+  <div class="sec-head">
+    <div class="sec-num">8</div>
+    <h2>Deep Dive into QLoRA</h2>
+  </div>
+  <h3 id="8-8-1-what-problem-does-qlora-solve">8.1 What Problem Does QLoRA Solve?</h3><p>LoRA dramatically reduces <em>trainable</em> parameters, but the <strong>frozen base model still must be loaded into GPU memory in full precision</strong> (typically FP16/BF16) to compute forward and backward passes through it. For a 7B model this is ~14GB just for weights, before activations — still out of reach for many single-GPU setups, and prohibitive for 13B–70B models. QLoRA (Dettmers et al., 2023) solves this by quantizing the frozen base model to 4-bit precision, cutting its memory footprint roughly 4x, while preserving fine-tuning quality through several precision-recovery techniques.</p>
+<h3 id="8-8-2-4-bit-normalfloat-nf4-quantization">8.2 4-bit NormalFloat (NF4) Quantization</h3><p><strong>Problem it solves:</strong> Naive uniform 4-bit quantization wastes representational precision because pretrained neural network weights are not uniformly distributed — they are approximately normally distributed around zero. Uniform bins allocate equal resolution to rare, far-from-zero values and common, near-zero values.</p>
+<p><strong>How it works:</strong> NF4 is an <strong>information-theoretically optimal</strong> data type for normally-distributed data: it defines 16 quantization bins (for 4 bits) whose boundaries are chosen so that each bin contains an equal expected proportion of a zero-mean, unit-variance normal distribution (a quantile-based scheme), rather than equal-width bins. Because pretrained weights closely approximate this distribution after per-block normalization, NF4 preserves substantially more information than standard 4-bit integer or float quantization at the same bit width.</p>
+<h3 id="8-8-3-double-quantization">8.3 Double Quantization</h3><p><strong>Problem it solves:</strong> Quantization requires storing per-block scaling constants (quantization "zero-points"/scales) alongside the quantized weights. With small block sizes (needed for accuracy), these constants themselves consume non-trivial memory — roughly an extra 0.5 bits per parameter for typical block sizes.</p>
+<p><strong>How it works:</strong> Double quantization <strong>quantizes the quantization constants themselves</strong> (typically from FP32 to 8-bit, in blocks), reducing this overhead further — QLoRA's paper reports this saves approximately 0.37 bits per parameter on average across a 65B model, without measurable performance degradation.</p>
+<h3 id="8-8-4-paged-optimizers">8.4 Paged Optimizers</h3><p><strong>Problem it solves:</strong> Training involves memory usage spikes — for example, when a long sequence produces unusually large activation/gradient buffers — that can trigger out-of-memory (OOM) crashes even when <em>average</em> memory usage is well within budget.</p>
+<p><strong>How it works:</strong> Paged optimizers use NVIDIA's <strong>unified memory</strong> feature to automatically page optimizer states between GPU and CPU memory on demand, similar to how operating systems page virtual memory to disk — absorbing transient memory spikes without crashing training, at the cost of some throughput during page transfers.</p>
+<h3 id="8-8-5-putting-it-together-the-qlora-recipe">8.5 Putting It Together: The QLoRA Recipe</h3><ol>
+<li>Load the pretrained base model with weights quantized to <strong>NF4</strong>, using <strong>double quantization</strong> for the quantization constants. The base model is frozen throughout.</li>
+<li>During the forward/backward pass, quantized weights are <strong>dequantized on-the-fly</strong> to BF16 for the actual matrix multiplication (compute happens in higher precision; storage stays in 4-bit) — this is why QLoRA preserves accuracy close to full-precision LoRA despite 4-bit storage.</li>
+<li>Attach <strong>LoRA adapters</strong> (Section 7) to the (dequantized-at-compute-time) linear layers; only these adapter parameters are trainable.</li>
+<li>Use a <strong>paged optimizer</strong> (e.g., paged AdamW, via <code>bitsandbytes</code>) to absorb memory spikes.</li>
+<li>Backpropagate gradients only through the LoRA parameters — gradients never need to be computed or stored for the frozen 4-bit base weights.</li>
+</ol>
+<h3 id="8-8-6-memory-comparison">8.6 Memory Comparison</h3><table>
+<thead>
+<tr>
+<th>Configuration</th>
+<th>Approx. Memory for a 7B Model</th>
+<th>Feasible Hardware</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Full fine-tuning (FP16 + Adam)</td>
+<td>~70–110 GB</td>
+<td>Multi-GPU datacenter node</td>
+</tr>
+<tr>
+<td>LoRA on FP16 base</td>
+<td>~16–20 GB</td>
+<td>Single 24GB+ GPU (e.g., RTX 4090, A10)</td>
+</tr>
+<tr>
+<td><strong>QLoRA (NF4 base + LoRA)</strong></td>
+<td><strong>~6–10 GB</strong></td>
+<td><strong>Single consumer GPU (e.g., RTX 3090/4090, T4)</strong></td>
+</tr>
+</tbody>
+</table>
+<p><em>(Figures are illustrative order-of-magnitude estimates; actual memory depends on sequence length, batch size, and target modules — always validate empirically for your specific configuration.)</em></p>
+<h3 id="8-8-7-why-qlora-changed-the-industry">8.7 Why QLoRA Changed the Industry</h3><p>Before QLoRA, fine-tuning any model above ~1–3B parameters realistically required datacenter-grade multi-GPU access — out of reach for most individual teams, startups, and even many enterprise groups without dedicated ML infrastructure budgets. QLoRA's central contribution was demonstrating that a <strong>7B–65B parameter model could be fine-tuned on a single GPU</strong> with <strong>no statistically significant performance loss</strong> relative to full 16-bit fine-tuning on benchmark tasks — collapsing the cost of domain fine-tuning from a multi-GPU-week datacenter reservation to a single-GPU, single-day (or hours) job. This is the direct enabler of the "70–90% inference cost reduction" and "vendor independence" business outcomes discussed in Section 15.</p>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>QLoRA's innovation is entirely about making the <strong>frozen base model</strong> cheap to hold in memory during training — it does not change how LoRA itself works.</li>
+<li>NF4 preserves precision by matching quantization bins to the actual (approximately normal) distribution of pretrained weights.</li>
+<li>Compute still happens in higher precision (BF16) via on-the-fly dequantization — QLoRA trades storage precision, not compute precision.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why is uniform 4-bit quantization suboptimal for pretrained neural network weights, and what does NF4 do differently?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Explain what "double quantization" quantizes, and why it's needed at all.</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What specific failure mode do paged optimizers prevent, and how do they borrow from OS-level virtual memory design?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q4</span><span class="q-text">Why doesn't storing weights in 4-bit degrade compute precision during the forward pass?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+<aside class="callout callout-exercise"><h4><span class="callout-icon" aria-hidden="true">&#9651;</span>Try it yourself</h4><p>Load a 7B open-weight model with <code>bitsandbytes</code> in 4-bit NF4 mode (<code>load_in_4bit=True, bnb_4bit_quant_type="nf4"</code>), attach a LoRA config via <code>peft</code>, and record actual <code>nvidia-smi</code> peak memory during a short training run. Compare against the same run with <code>bnb_4bit_quant_type="fp4"</code> and against LoRA-only (no quantization).</p>
+<hr /></aside>
+</section>
+<section class="section" id="sec-9" data-num="9" data-title="Enterprise Architecture">
+  <div class="sec-head">
+    <div class="sec-num">9</div>
+    <h2>Enterprise Architecture</h2>
+  </div>
+  <h3 id="9-9-1-reference-architecture-diagram">9.1 Reference Architecture Diagram</h3><div class="diagram"><div class="diagram-label">System diagram</div><pre class="mermaid">flowchart TD
+    U["User"] --> APP["Application Layer (Web/Mobile/Internal Tool)"]
+    APP --> API["Inference API Gateway (Auth, Rate Limiting, Routing)"]
+    API --> MODEL["Fine-Tuned Model Server (QLoRA-tuned, vLLM/TGI)"]
+    MODEL --> VDB["Vector DB (optional — RAG grounding)"]
+    MODEL --> EDB["Enterprise Database (structured context, entitlements)"]
+    MODEL --> MON["Monitoring (latency, GPU util, cost/request)"]
+    MODEL --> LOG["Logging (requests, responses, PII-redacted traces)"]
+    LOG --> FB["Feedback Loop (human review, corrections, ratings)"]
+    FB --> DATASET["Curated Dataset Store"]
+    DATASET --> TRAIN["Retraining / Adapter Refresh Pipeline"]
+    TRAIN --> MODEL
+</pre></div>
+<h3 id="9-9-2-component-responsibilities">9.2 Component Responsibilities</h3><table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Responsibility</th>
+<th>Key Design Considerations</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Application Layer</strong></td>
+<td>User-facing surface (chat UI, internal tool, API consumer)</td>
+<td>Should be model-agnostic where possible, to allow swapping fine-tuned models without app rewrites</td>
+</tr>
+<tr>
+<td><strong>Inference API Gateway</strong></td>
+<td>AuthN/AuthZ, rate limiting, request routing, versioning</td>
+<td>Route by task/domain to the correct model or LoRA adapter; supports canary rollout of new adapter versions</td>
+</tr>
+<tr>
+<td><strong>Fine-Tuned Model Server</strong></td>
+<td>Hosts the QLoRA-tuned model (often merged, or served via multi-LoRA serving)</td>
+<td>Choice of serving engine (vLLM, TGI, Ollama) determines throughput, batching, and multi-adapter support</td>
+</tr>
+<tr>
+<td><strong>Vector DB (optional)</strong></td>
+<td>Supplies retrieval-augmented context for facts that change faster than the fine-tuning cadence</td>
+<td>Complementary to fine-tuning, not a replacement — see Section 4.4</td>
+</tr>
+<tr>
+<td><strong>Enterprise Database</strong></td>
+<td>Structured context: user entitlements, business objects, session state</td>
+<td>Keeps the model stateless; business logic and access control live outside the model</td>
+</tr>
+<tr>
+<td><strong>Monitoring</strong></td>
+<td>Latency percentiles, GPU utilization, throughput, cost-per-request</td>
+<td>Feeds capacity planning and SLA tracking</td>
+</tr>
+<tr>
+<td><strong>Logging</strong></td>
+<td>Full request/response traces (with PII redaction policies)</td>
+<td>Required for both debugging and the feedback loop below</td>
+</tr>
+<tr>
+<td><strong>Feedback Loop</strong></td>
+<td>Captures human corrections, thumbs up/down, escalations</td>
+<td>Primary source of new fine-tuning data — closes the loop back into the dataset</td>
+</tr>
+<tr>
+<td><strong>Retraining / Adapter Refresh Pipeline</strong></td>
+<td>Periodic or triggered re-fine-tuning as new curated data accumulates</td>
+<td>Should version adapters independently of the base model for safe rollback</td>
+</tr>
+</tbody>
+</table>
+<h3 id="9-9-3-design-notes">9.3 Design Notes</h3><ul>
+<li><strong>Adapter-first deployment</strong>: because a LoRA/QLoRA adapter is small (tens–hundreds of MB), enterprises should version and deploy <em>adapters</em>, not full merged models, keeping the frozen base model as a shared, cached artifact across many domain adapters — this is what enables <strong>multi-LoRA serving</strong> (Section 10) at scale.</li>
+<li><strong>Stateless model servers</strong>: all session state, entitlements, and business context live in the enterprise database, not in the model server, to allow horizontal scaling and safe rolling deployments.</li>
+<li><strong>Feedback loop is the long-term differentiator</strong>: the architectural value of owning the fine-tuning pipeline is that production feedback becomes a compounding asset (better training data → better adapter → better production outputs → better feedback), which is structurally unavailable when depending solely on a third-party API.</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>The reference architecture treats the fine-tuned model as one replaceable component in a larger system, not the entire system.</li>
+<li>Separating adapters from the base model is the key architectural decision enabling efficient multi-domain deployment.</li>
+<li>The feedback loop is what turns a one-time fine-tuning project into a continuously improving system.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why should business logic and entitlements live outside the model server rather than being baked into prompts sent to the model?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What does "adapter-first deployment" enable that "merged-model-per-domain deployment" does not?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">How does the feedback loop component create a compounding advantage over pure third-party API usage?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-10" data-num="10" data-title="Technology Stack">
+  <div class="sec-head">
+    <div class="sec-num">10</div>
+    <h2>Technology Stack</h2>
+  </div>
+  <div class="lead"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Category</th>
+<th>Why It Exists / What Problem It Solves</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Hugging Face Transformers</strong></td>
+<td>Model library</td>
+<td>Unified API for loading, running, and fine-tuning thousands of open-weight architectures without reimplementing model code per architecture</td>
+</tr>
+<tr>
+<td><strong>PEFT (Hugging Face)</strong></td>
+<td>Fine-tuning library</td>
+<td>Implements LoRA, QLoRA, prefix tuning, prompt tuning, IA3, etc. behind a consistent config-driven API; wraps a base model with adapters non-invasively</td>
+</tr>
+<tr>
+<td><strong>TRL (Transformer Reinforcement Learning)</strong></td>
+<td>Training library</td>
+<td>Provides higher-level trainers (SFTTrainer, DPOTrainer, PPOTrainer) built on top of Transformers/PEFT, reducing SFT/RLHF boilerplate</td>
+</tr>
+<tr>
+<td><strong>Accelerate</strong></td>
+<td>Training infrastructure</td>
+<td>Abstracts multi-GPU/multi-node/mixed-precision training setup so the same script runs on one GPU or a cluster with minimal code changes</td>
+</tr>
+<tr>
+<td><strong>BitsAndBytes</strong></td>
+<td>Quantization library</td>
+<td>Implements 4-bit/8-bit quantized layers, NF4, double quantization, and paged optimizers — the core enabler of QLoRA's memory savings</td>
+</tr>
+<tr>
+<td><strong>PyTorch</strong></td>
+<td>Deep learning framework</td>
+<td>Underlying tensor/autograd engine all of the above are built on</td>
+</tr>
+<tr>
+<td><strong>CUDA</strong></td>
+<td>GPU compute platform</td>
+<td>Low-level GPU kernel execution that PyTorch, bitsandbytes, and Flash Attention depend on</td>
+</tr>
+<tr>
+<td><strong>Flash Attention</strong></td>
+<td>Attention kernel</td>
+<td>Reduces attention's memory complexity from quadratic to near-linear in sequence length via IO-aware kernel fusion, cutting memory use and increasing training/inference throughput</td>
+</tr>
+<tr>
+<td><strong>vLLM</strong></td>
+<td>Inference serving engine</td>
+<td>High-throughput serving via PagedAttention (memory-efficient KV-cache management) and continuous batching; supports serving many LoRA adapters against one base model simultaneously</td>
+</tr>
+<tr>
+<td><strong>Ollama</strong></td>
+<td>Local inference runner</td>
+<td>Simplifies running quantized open-weight models locally/on-prem with a lightweight CLI/API — useful for prototyping and edge deployment</td>
+</tr>
+<tr>
+<td><strong>MLflow</strong></td>
+<td>Experiment tracking / model registry</td>
+<td>Tracks fine-tuning runs, hyperparameters, metrics, and versions adapters/models for reproducibility and governance</td>
+</tr>
+<tr>
+<td><strong>Weights &amp; Biases (W&amp;B)</strong></td>
+<td>Experiment tracking</td>
+<td>Real-time training visualization, hyperparameter sweep tooling, and team-shared dashboards for comparing fine-tuning runs</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="10-10-1-how-the-stack-fits-together">10.1 How the Stack Fits Together</h3><div class="diagram"><div class="diagram-label">System diagram</div><pre class="mermaid">flowchart LR
+    HFT["Transformers (model loading)"] --> BNB["BitsAndBytes (4-bit NF4 quantization)"]
+    BNB --> PEFT["PEFT (LoRA adapter injection)"]
+    PEFT --> TRL["TRL SFTTrainer (training loop)"]
+    TRL --> ACC["Accelerate (device/precision orchestration)"]
+    ACC --> FA["Flash Attention (efficient attention kernels)"]
+    TRL --> TRACK["MLflow / W&B (experiment tracking)"]
+    TRL --> ADAPTER["Trained LoRA Adapter"]
+    ADAPTER --> VLLM["vLLM (multi-LoRA serving)"]
+    ADAPTER --> OLLAMA["Ollama (local/edge serving)"]
+</pre></div>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>The stack separates concerns cleanly: model loading (Transformers) → memory efficiency (BitsAndBytes) → adaptation mechanism (PEFT) → training orchestration (TRL/Accelerate) → serving (vLLM/Ollama) → observability (MLflow/W&amp;B).</li>
+<li>vLLM's multi-LoRA serving is what operationalizes the "adapter-first deployment" architecture decision from Section 9.</li>
+<li>Flash Attention benefits both training (larger effective batch/context within memory budget) and inference (throughput).</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">What specific problem does PagedAttention (vLLM) solve for serving, and how is it conceptually related to paged optimizers in QLoRA training?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why is Accelerate valuable even for single-GPU training scripts?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What's the practical benefit of serving multiple LoRA adapters against a single loaded base model, versus loading a separate merged model per domain?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-11" data-num="11" data-title="Dataset Strategy">
+  <div class="sec-head">
+    <div class="sec-num">11</div>
+    <h2>Dataset Strategy</h2>
+  </div>
+  <h3 id="11-11-1-what-problem-does-dataset-strategy-solve">11.1 What Problem Does Dataset Strategy Solve?</h3><p>Fine-tuning quality is bounded above by data quality — a well-executed QLoRA training run on a poorly curated dataset will reliably underperform a mediocre training run on a well-curated one. Dataset strategy is the highest-leverage, most under-invested part of most fine-tuning projects.</p>
+<h3 id="11-11-2-public-datasets">11.2 Public Datasets</h3><p>Useful for establishing baseline instruction-following capability or supplementing narrow domain data with broader task-format diversity. Should rarely be the <em>sole</em> source for a domain-specific fine-tune — public datasets by definition don't contain an organization's proprietary knowledge.</p>
+<h3 id="11-11-3-internal-enterprise-datasets">11.3 Internal Enterprise Datasets</h3><p>The core value driver: historical tickets, internal documentation, resolved incidents, expert-authored reports, and past human-in-the-loop decisions. These encode exactly the domain patterns a DSLM needs. Requires careful <strong>PII/PHI scrubbing</strong> and <strong>access-control-aware curation</strong> before use in training data.</p>
+<h3 id="11-11-4-synthetic-data-generation">11.4 Synthetic Data Generation</h3><p><strong>Problem it solves:</strong> Enterprise domains often have too few high-quality labeled examples for robust fine-tuning (hundreds, not tens of thousands).</p>
+<p><strong>How it works:</strong> A strong general-purpose model (e.g., a frontier API) is used <strong>offline</strong>, one time, to generate additional (prompt, completion) pairs conditioned on real domain seed examples, schemas, or documents — expanding dataset size and diversity while keeping the <em>fine-tuned model itself</em> fully self-hosted going forward. Synthetic examples should always be validated by a domain expert or automated schema/consistency checks before inclusion, since generation errors compound if left uncorrected.</p>
+<h3 id="11-11-5-data-cleaning">11.5 Data Cleaning</h3><ul>
+<li>De-duplication (exact and near-duplicate) to prevent overfitting to repeated examples.</li>
+<li>Removing malformed, truncated, or off-schema examples.</li>
+<li>Normalizing formatting (consistent prompt templates, consistent field ordering in structured outputs).</li>
+<li>Filtering for length outliers that could destabilize batch-level memory usage.</li>
+</ul>
+<h3 id="11-11-6-annotation">11.6 Annotation</h3><ul>
+<li>Domain experts label or correct examples — for structured extraction tasks, this often means verifying a schema-conformant JSON output against source text.</li>
+<li>Annotation guidelines should be written down and versioned, the same as code, since inconsistent labeling directly degrades fine-tuning quality.</li>
+</ul>
+<h3 id="11-11-7-validation">11.7 Validation</h3><ul>
+<li>Hold out a validation split (and, ideally, a separate held-out <strong>test</strong> split never touched during hyperparameter tuning) stratified by task subtype to catch overfitting to the dominant pattern in the dataset.</li>
+<li>Validate schema conformance programmatically for structured-output tasks before training, not just after.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Data Source</th>
+<th>Strengths</th>
+<th>Risks</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Public datasets</td>
+<td>Free, diverse, large</td>
+<td>Not domain-specific, license considerations</td>
+<td>Use for format/style baseline, not domain facts</td>
+</tr>
+<tr>
+<td>Internal enterprise data</td>
+<td>Highest domain fidelity</td>
+<td>PII/PHI exposure, access control</td>
+<td>Redaction pipeline, role-based curation review</td>
+</tr>
+<tr>
+<td>Synthetic data</td>
+<td>Scales small seed sets</td>
+<td>Can encode generator's own errors/hallucinations</td>
+<td>Expert review, schema validation, cap synthetic:real ratio</td>
+</tr>
+</tbody>
+</table>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Dataset quality is the primary lever on fine-tuning outcome quality — more so than most hyperparameter choices.</li>
+<li>Synthetic data generation is a bootstrapping tool, not a replacement for real domain data or expert validation.</li>
+<li>Data governance (PII/PHI handling, annotation guidelines, validation splits) should be treated as an engineering deliverable, not an afterthought.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why is a well-curated small dataset often preferable to a large, noisy one for domain fine-tuning?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What specific risk does synthetic data generation introduce, and how is it mitigated?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why should validation and test splits be stratified by task subtype rather than randomly sampled?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-12" data-num="12" data-title="Hands-on Implementation Roadmap">
+  <div class="sec-head">
+    <div class="sec-num">12</div>
+    <h2>Hands-on Implementation Roadmap</h2>
+  </div>
+  <h3 id="12-phase-1-environment-setup">Phase 1 — Environment Setup</h3><ul>
+<li>Provision GPU (cloud or on-prem); confirm CUDA/driver compatibility.</li>
+<li>Install: <code>transformers</code>, <code>peft</code>, <code>trl</code>, <code>accelerate</code>, <code>bitsandbytes</code>, <code>torch</code> (CUDA build), <code>flash-attn</code> (optional but recommended).</li>
+<li>Verify 4-bit quantized model load succeeds and reports expected memory footprint via <code>nvidia-smi</code>.</li>
+<li>Set up experiment tracking (MLflow or W&amp;B) before the first training run, not after.</li>
+</ul>
+<h3 id="12-phase-2-dataset-preparation">Phase 2 — Dataset Preparation</h3><ul>
+<li>Aggregate and de-identify source data (Section 11.3).</li>
+<li>Define the prompt/response template (must match the base model's chat template if starting from an instruct-tuned checkpoint).</li>
+<li>Generate synthetic augmentation if needed (Section 11.4), with expert validation.</li>
+<li>Split into train/validation/test; validate schema conformance programmatically.</li>
+</ul>
+<h3 id="12-phase-3-fine-tuning">Phase 3 — Fine-Tuning</h3><ul>
+<li>Select base model (Section 13.2 walks through a concrete choice).</li>
+<li>Configure <code>BitsAndBytesConfig</code> (4-bit, NF4, double quantization, compute dtype BF16).</li>
+<li>Configure <code>LoraConfig</code> (rank, alpha, target modules, dropout).</li>
+<li>Configure <code>SFTTrainer</code> (TRL) with the prepared dataset, learning rate, batch size, gradient accumulation, and paged optimizer.</li>
+<li>Run training with checkpointing; monitor loss curves and validation metrics via the tracking tool from Phase 1.</li>
+</ul>
+<h3 id="12-phase-4-evaluation">Phase 4 — Evaluation</h3><ul>
+<li>Run the held-out test set through both the base model and the fine-tuned model.</li>
+<li>Compute automated metrics (Section 14): task-appropriate combination of exact match, F1, ROUGE/BLEU (for generative summarization), BERTScore, and structured schema-conformance rate.</li>
+<li>Run a structured human evaluation pass on a sample, focused on hallucination rate and domain-correctness, not just fluency.</li>
+</ul>
+<h3 id="12-phase-5-inference">Phase 5 — Inference</h3><ul>
+<li>Merge the LoRA adapter into the base model (for single-domain deployment) <strong>or</strong> keep it unmerged for multi-adapter serving via vLLM.</li>
+<li>Benchmark latency and throughput under realistic concurrency.</li>
+<li>Validate output schema conformance under production-like load (including edge cases and adversarial-ish inputs).</li>
+</ul>
+<h3 id="12-phase-6-deployment">Phase 6 — Deployment</h3><ul>
+<li>Deploy behind the Inference API Gateway (Section 9).</li>
+<li>Configure monitoring/logging/feedback loop from day one, not as a follow-up.</li>
+<li>Establish a re-training trigger policy (e.g., N new curated examples, or M weeks elapsed, or a monitored accuracy metric drop).</li>
+</ul>
+<div class="diagram"><div class="diagram-label">System diagram</div><pre class="mermaid">flowchart LR
+    P1["Phase 1: Environment Setup"] --> P2["Phase 2: Dataset Prep"]
+    P2 --> P3["Phase 3: Fine-Tuning (QLoRA)"]
+    P3 --> P4["Phase 4: Evaluation"]
+    P4 -->|"Pass"| P5["Phase 5: Inference Benchmarking"]
+    P4 -->|"Fail: revisit data/hparams"| P2
+    P5 --> P6["Phase 6: Deployment"]
+    P6 --> FL["Feedback Loop"]
+    FL --> P2
+</pre></div>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>The roadmap is cyclical, not linear — evaluation failures route back to dataset work, and production feedback routes back into Phase 2 for the next iteration.</li>
+<li>Experiment tracking and monitoring should be set up <em>before</em> the first training/deployment run, not retrofitted.</li>
+<li>Evaluation (Phase 4) should always include a human review pass — automated metrics alone are insufficient for domain-correctness judgments.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why does the roadmap route evaluation failures back to Phase 2 rather than directly to hyperparameter retuning?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the risk of skipping a human evaluation pass and relying solely on automated metrics?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What should trigger a re-training cycle in production, beyond a fixed calendar schedule?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-13" data-num="13" data-title="Sample Project — Cybersecurity Vulnerability Assistant">
+  <div class="sec-head">
+    <div class="sec-num">13</div>
+    <h2>Sample Project — Cybersecurity Vulnerability Assistant</h2>
+  </div>
+  <h3 id="13-13-1-project-goal">13.1 Project Goal</h3><p>Build a domain-specialized assistant that ingests vulnerability reports (e.g., CVE descriptions, internal pentest findings, dependency scan output) and produces structured, schema-conformant triage output: severity classification, affected component identification, exploitability summary, and a remediation recommendation draft — replacing a workflow that previously required a security analyst to manually read and triage each report, or an expensive per-call frontier API for a narrow, repeatable extraction task.</p>
+<h3 id="13-13-2-base-model-choice">13.2 Base Model Choice</h3><p>An open-weight 7B–8B instruct-tuned model is a reasonable default starting point for this class of task: large enough to reason over moderately complex security report text and follow structured-output instructions reliably, small enough to fine-tune via QLoRA on a single GPU and serve at low latency.</p>
+<h3 id="13-13-3-folder-structure">13.3 Folder Structure</h3><pre><code>vuln-assistant/
+├── configs/
+│   ├── bnb_config.yaml          # 4-bit quantization settings
+│   ├── lora_config.yaml         # LoRA rank, alpha, target modules
+│   └── training_config.yaml     # LR, batch size, epochs, eval strategy
+├── data/
+│   ├── raw/                     # Source vulnerability reports (access-controlled)
+│   ├── processed/                # Cleaned, schema-validated (prompt, completion) pairs
+│   ├── synthetic/                # Expert-reviewed synthetic augmentation
+│   └── splits/                   # train.jsonl / val.jsonl / test.jsonl
+├── src/
+│   ├── data_prep.py              # Cleaning, dedup, schema validation
+│   ├── synthetic_gen.py          # Synthetic data generation + validation harness
+│   ├── train.py                  # QLoRA fine-tuning entrypoint (TRL SFTTrainer)
+│   ├── merge_adapter.py          # Merges LoRA weights into base for single-domain deploy
+│   ├── evaluate.py                # Automated metrics + schema-conformance checks
+│   └── serve.py                   # vLLM/Ollama serving entrypoint
+├── notebooks/
+│   └── error_analysis.ipynb      # Manual review of failure cases
+├── deployment/
+│   ├── Dockerfile
+│   └── k8s/                       # Serving manifests (or equivalent for target infra)
+└── README.md
+</code></pre>
+<h3 id="13-13-4-architecture-project-level">13.4 Architecture (Project-Level)</h3><div class="diagram"><div class="diagram-label">System diagram</div><pre class="mermaid">flowchart TD
+    SCAN["Vulnerability Scanners / CVE Feeds / Pentest Reports"] --> INGEST["Ingestion & PII/Secret Redaction"]
+    INGEST --> STORE["Curated Dataset Store"]
+    STORE --> TRAIN["QLoRA Fine-Tuning (Llama/Mistral/Qwen 7-8B base)"]
+    TRAIN --> ADAPTER["Vulnerability-Triage LoRA Adapter"]
+    ADAPTER --> SERVE["vLLM Serving (multi-adapter capable)"]
+    SERVE --> API["Triage API"]
+    API --> ANALYST["Security Analyst Review UI"]
+    ANALYST -->|"Corrections"| STORE
+</pre></div>
+<h3 id="13-13-5-training-pipeline-conceptual">13.5 Training Pipeline (Conceptual)</h3><ol>
+<li><strong>Input schema</strong>: raw vulnerability report text (free text, possibly with embedded CVE IDs, CVSS vectors, affected package names).</li>
+<li><strong>Target schema</strong> (JSON): <code>{ "severity": "critical|high|medium|low", "affected_component": string, "cve_ids": [string], "exploitability_summary": string, "recommended_action": string }</code>.</li>
+<li>Fine-tune with <code>SFTTrainer</code> using a fixed instruction template: system instruction defining the exact schema, followed by the raw report as user content, followed by the target JSON as the completion.</li>
+<li>Train with QLoRA config: rank 16, alpha 32, target modules covering attention + MLP projections, NF4 quantization, paged AdamW optimizer, small learning rate (typically in the <code>1e-4</code> to <code>2e-4</code> range for LoRA, notably higher than typical full fine-tuning rates since only a small parameter subset is updating).</li>
+</ol>
+<h3 id="13-13-6-inference-pipeline">13.6 Inference Pipeline</h3><ul>
+<li>Request arrives at the Triage API with raw report text.</li>
+<li>API gateway authenticates and routes to the model server, selecting the <code>vuln-triage</code> LoRA adapter (if serving multiple domain adapters from one base).</li>
+<li>Model generates structured JSON; a schema validator checks conformance before returning to the caller.</li>
+<li>Non-conformant outputs are flagged for analyst review rather than silently returned (a critical guardrail for structured-extraction tasks).</li>
+</ul>
+<h3 id="13-13-7-evaluation-pipeline">13.7 Evaluation Pipeline</h3><ul>
+<li><strong>Schema conformance rate</strong>: percentage of outputs that parse as valid JSON matching the target schema.</li>
+<li><strong>Field-level exact match / F1</strong> for categorical fields (severity, component).</li>
+<li><strong>ROUGE/BERTScore</strong> for the free-text <code>exploitability_summary</code> and <code>recommended_action</code> fields against expert-written references.</li>
+<li><strong>Hallucination rate</strong>: percentage of outputs referencing a CVE ID or component not present in the source report — a domain-specific, task-critical metric.</li>
+<li><strong>Human spot-check</strong>: security analysts review a stratified sample weekly, feeding disagreements back into the dataset.</li>
+</ul>
+<h3 id="13-13-8-deployment-pipeline">13.8 Deployment Pipeline</h3><ul>
+<li>Containerize the merged model (or base + adapter) with the serving engine (vLLM) baked in.</li>
+<li>Deploy behind the Inference API Gateway with autoscaling tied to request queue depth.</li>
+<li>Wire monitoring (latency, schema-conformance rate, GPU utilization) and the analyst-correction feedback loop from day one.</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>A well-scoped sample project has a fixed, validatable output schema — this is what makes automated evaluation and hallucination detection tractable.</li>
+<li>The analyst review UI isn't an add-on; it's the primary feedback mechanism that funds continuous improvement of the adapter.</li>
+<li>Non-conformant model outputs should be routed to human review, never silently accepted, in a structured-extraction production system.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why does fixing a strict output schema make hallucination <em>detection</em> easier, compared to open-ended generation tasks?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the purpose of validating schema conformance server-side before returning a response to the caller?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">How would you extend the evaluation pipeline if the assistant also needed to recommend a <em>specific</em> patch version, not just a general remediation action?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-14" data-num="14" data-title="Evaluation">
+  <div class="sec-head">
+    <div class="sec-num">14</div>
+    <h2>Evaluation</h2>
+  </div>
+  <h3 id="14-14-1-why-evaluation-strategy-matters">14.1 Why Evaluation Strategy Matters</h3><p><strong>Problem it solves:</strong> A fine-tuned model that "looks fluent" in spot checks can still be systematically wrong in ways that only appear at scale or in edge cases. A rigorous, multi-metric evaluation suite is what separates a demo from a production system.</p>
+<h3 id="14-14-2-metrics">14.2 Metrics</h3><table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>What It Measures</th>
+<th>Best Suited For</th>
+<th>Limitation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>BLEU</strong></td>
+<td>N-gram precision overlap with reference</td>
+<td>Machine translation-style tasks</td>
+<td>Penalizes valid paraphrasing; weak for open-ended generation</td>
+</tr>
+<tr>
+<td><strong>ROUGE</strong></td>
+<td>N-gram/subsequence recall overlap with reference</td>
+<td>Summarization</td>
+<td>Same paraphrase-sensitivity issue as BLEU</td>
+</tr>
+<tr>
+<td><strong>BERTScore</strong></td>
+<td>Semantic similarity via contextual embeddings</td>
+<td>Generation tasks where meaning matters more than exact wording</td>
+<td>Computationally heavier; still an approximation of "correctness"</td>
+</tr>
+<tr>
+<td><strong>Exact Match (EM)</strong></td>
+<td>Binary: output exactly matches reference</td>
+<td>Structured/categorical fields, short-form QA</td>
+<td>Too strict for free-text fields</td>
+</tr>
+<tr>
+<td><strong>F1</strong></td>
+<td>Harmonic mean of precision/recall (token or field level)</td>
+<td>Extraction tasks, classification</td>
+<td>Needs clear field/token alignment definition</td>
+</tr>
+<tr>
+<td><strong>Hallucination Rate</strong></td>
+<td>Frequency of unsupported/fabricated claims relative to source</td>
+<td>Any grounded generation task</td>
+<td>Requires either human review or a strong reference-checking model</td>
+</tr>
+<tr>
+<td><strong>Human Evaluation</strong></td>
+<td>Expert judgment on correctness, usefulness, tone</td>
+<td>All tasks, especially high-stakes domains</td>
+<td>Expensive, slower, needs clear rubrics for consistency</td>
+</tr>
+<tr>
+<td><strong>Latency</strong></td>
+<td>Time to first token / total generation time</td>
+<td>Production readiness</td>
+<td>Must be measured under realistic concurrency, not single-request</td>
+</tr>
+<tr>
+<td><strong>GPU Utilization</strong></td>
+<td>Compute efficiency of serving</td>
+<td>Cost/capacity planning</td>
+<td>High utilization alone doesn't imply correctness</td>
+</tr>
+<tr>
+<td><strong>Cost per Request</strong></td>
+<td>Fully-loaded infra cost divided by request volume</td>
+<td>Business case validation (Section 15)</td>
+<td>Must include amortized training/retraining cost, not just serving</td>
+</tr>
+</tbody>
+</table>
+<h3 id="14-14-3-evaluation-design-principles">14.3 Evaluation Design Principles</h3><ul>
+<li>Always evaluate against a <strong>held-out</strong> test set never used in hyperparameter tuning.</li>
+<li>Use <strong>task-appropriate</strong> metric combinations — no single metric is sufficient (e.g., a structured extraction task needs schema-conformance rate <em>and</em> field-level F1 <em>and</em> hallucination rate).</li>
+<li>Track metrics <strong>longitudinally</strong> across adapter versions to catch regressions introduced by retraining on new data (a form of evaluation-driven regression testing for models).</li>
+<li>For regulated domains, maintain a <strong>fixed human-reviewed benchmark set</strong> that is never used for training, to provide an auditable, stable accuracy baseline over time.</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>No single automated metric substitutes for a combination tailored to the task's actual failure modes.</li>
+<li>Cost-per-request must include amortized fine-tuning/retraining cost to be a fair comparison against API-based alternatives.</li>
+<li>A stable, human-reviewed benchmark set is both an evaluation tool and a governance/audit artifact in regulated domains.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why are BLEU and ROUGE poor standalone metrics for open-ended generation tasks?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What does "hallucination rate" require as a prerequisite to be measurable at all?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why should cost-per-request calculations include amortized retraining cost?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-15" data-num="15" data-title="Business Value">
+  <div class="sec-head">
+    <div class="sec-num">15</div>
+    <h2>Business Value</h2>
+  </div>
+  <div class="lead"><p>Fine-tuned domain models produce measurable, trackable benefits across multiple business dimensions:</p>
+<table>
+<thead>
+<tr>
+<th>Benefit Category</th>
+<th>Typical Measured Impact</th>
+<th>Mechanism</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Inference Cost Reduction</strong></td>
+<td>70–90% lower cost vs. continuous frontier-API calls for high-volume narrow tasks</td>
+<td>Smaller self-hosted model + owned infrastructure vs. per-token external pricing</td>
+</tr>
+<tr>
+<td><strong>Reduced Hallucinations</strong></td>
+<td>Meaningful drop in domain-factual error rate on in-domain evaluation sets</td>
+<td>Fine-tuning anchors output distribution in verified domain patterns</td>
+</tr>
+<tr>
+<td><strong>Faster Responses</strong></td>
+<td>Lower and more predictable p50/p99 latency</td>
+<td>Smaller model + optimized serving stack (vLLM/Flash Attention) vs. large shared external API under variable load</td>
+</tr>
+<tr>
+<td><strong>Data Privacy</strong></td>
+<td>Regulated data never leaves the enterprise's environment</td>
+<td>Self-hosted, in-VPC/on-prem deployment</td>
+</tr>
+<tr>
+<td><strong>Regulatory Compliance</strong></td>
+<td>Easier to satisfy data residency and auditability requirements</td>
+<td>Full control over data flow, logging, and model versioning</td>
+</tr>
+<tr>
+<td><strong>Vendor Independence</strong></td>
+<td>No single point of external dependency for critical-path workloads</td>
+<td>Open-weight base models + owned adapters = full model ownership</td>
+</tr>
+<tr>
+<td><strong>Edge Deployment</strong></td>
+<td>Enables offline/low-connectivity deployment scenarios</td>
+<td>Quantized small models fit resource-constrained environments</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="15-15-1-building-the-business-case">15.1 Building the Business Case</h3><p>A rigorous business case compares <strong>total cost of ownership (TCO)</strong> — not just per-token inference price — across the two architectures:</p>
+<ul>
+<li><strong>Frontier-API-only TCO</strong>: per-token cost × volume + integration engineering time. Scales linearly (or worse) with usage; no ceiling.</li>
+<li><strong>QLoRA-tuned self-hosted TCO</strong>: one-time (or periodic) fine-tuning compute cost + serving infrastructure cost (amortized across volume) + ML engineering time for the pipeline in Section 9. Scales sub-linearly with usage past the infrastructure break-even point.</li>
+</ul>
+<p>The break-even point depends heavily on request volume, latency requirements, and data sensitivity — for low-volume, highly varied, non-sensitive workloads, a general API may remain the right choice; for high-volume, narrow, sensitive workloads, self-hosted fine-tuned models typically win decisively.</p>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Business value should be tracked per-dimension (cost, accuracy, latency, compliance, independence), not collapsed into a single "it's better" claim.</li>
+<li>The economic case depends on volume and sensitivity — this is a workload-selection decision, not a blanket replacement of API usage.</li>
+<li>TCO comparisons must include engineering and retraining costs on the fine-tuning side to be credible.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Under what workload characteristics does a frontier API remain more cost-effective than a self-hosted fine-tuned model?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What costs are commonly omitted from naive TCO comparisons in favor of fine-tuning, and why does that inflate the apparent savings?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">How would you present a business case for fine-tuning to an engineering manager who is cost-conscious but skeptical of the accuracy claims?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-16" data-num="16" data-title="Challenges">
+  <div class="sec-head">
+    <div class="sec-num">16</div>
+    <h2>Challenges</h2>
+  </div>
+  <div class="lead"><table>
+<thead>
+<tr>
+<th>Challenge</th>
+<th>Description</th>
+<th>Why It Happens</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Catastrophic Forgetting</strong></td>
+<td>Fine-tuned model loses general capabilities it had before fine-tuning</td>
+<td>Aggressive fine-tuning (high LR, too many epochs, high-rank/high-alpha LoRA) overwrites broadly-useful representations with narrow-task ones</td>
+</tr>
+<tr>
+<td><strong>Data Quality</strong></td>
+<td>Model inherits and amplifies dataset errors/inconsistencies</td>
+<td>Fine-tuning is directly supervised by the dataset; there is no correction mechanism beyond the data itself</td>
+</tr>
+<tr>
+<td><strong>Overfitting</strong></td>
+<td>Model memorizes training examples rather than generalizing</td>
+<td>Small datasets + too many epochs + insufficiently regularized LoRA (high rank, low dropout)</td>
+</tr>
+<tr>
+<td><strong>GPU Requirements</strong></td>
+<td>Even QLoRA-reduced requirements can be a blocker for teams without any GPU access</td>
+<td>Cloud GPU availability/cost, procurement lead time for on-prem hardware</td>
+</tr>
+<tr>
+<td><strong>Evaluation Complexity</strong></td>
+<td>Hard to build evaluation sets that catch real production failure modes</td>
+<td>Production input distribution often differs from curated training/eval data; adversarial/edge cases are hard to anticipate</td>
+</tr>
+<tr>
+<td><strong>Maintenance</strong></td>
+<td>Adapters need ongoing updates as domain knowledge changes</td>
+<td>Static fine-tuned weights don't automatically reflect new regulations, products, or terminology</td>
+</tr>
+<tr>
+<td><strong>Model Drift</strong></td>
+<td>Production performance degrades over time relative to initial evaluation</td>
+<td>Input distribution shift (new document formats, new terminology) without corresponding retraining</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="16-16-1-mitigations-summary">16.1 Mitigations Summary</h3><ul>
+<li><strong>Catastrophic forgetting</strong>: keep LoRA rank/alpha conservative for the task size, mix in a small proportion of general-instruction data alongside domain data, monitor general-capability benchmarks alongside domain metrics.</li>
+<li><strong>Data quality</strong>: invest in the annotation/validation pipeline from Section 11 before scaling dataset size.</li>
+<li><strong>Overfitting</strong>: use held-out validation loss for early stopping, not just training loss; apply LoRA dropout; avoid over-training on small datasets.</li>
+<li><strong>GPU requirements</strong>: cloud spot/on-demand GPU instances lower the barrier further than QLoRA alone; batch fine-tuning jobs to amortize setup cost.</li>
+<li><strong>Evaluation complexity</strong>: continuously mine production logs (via the feedback loop, Section 9) for real failure cases to add to the evaluation set.</li>
+<li><strong>Maintenance &amp; drift</strong>: establish a monitored metric (e.g., schema-conformance rate, or a sampled accuracy proxy) with an explicit retraining trigger threshold, not just a calendar-based cadence.</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Most of these challenges are data and process problems, not fundamentally QLoRA/LoRA algorithmic limitations.</li>
+<li>Catastrophic forgetting and overfitting are both, at root, capacity/regularization mismanagement — rank, alpha, epochs, and data mixture are the levers.</li>
+<li>Maintenance and drift mean fine-tuning is a recurring engineering process, not a one-time project.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">How would you detect catastrophic forgetting in a fine-tuned model, and what would you check first?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why can a model with excellent training loss still perform poorly in production?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What's the difference between an overfitting problem and a model drift problem, and how would your mitigation differ?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-17" data-num="17" data-title="Best Practices">
+  <div class="sec-head">
+    <div class="sec-num">17</div>
+    <h2>Best Practices</h2>
+  </div>
+  <div class="lead"><ol>
+<li><strong>Start with the smallest base model that plausibly solves the task</strong>, and only scale up if evaluation shows a genuine capability gap — smaller models are cheaper to fine-tune, serve, and iterate on.</li>
+<li><strong>Invest in dataset curation before hyperparameter tuning.</strong> A marginal hour spent on data quality typically outperforms a marginal hour spent on learning-rate search.</li>
+<li><strong>Use a held-out validation set for early stopping</strong>, and a separate, never-touched test set for final reporting.</li>
+<li><strong>Initialize LoRA conservatively</strong> (moderate rank, e.g., 8–16, before scaling up) and increase only if evaluation shows underfitting.</li>
+<li><strong>Track experiments rigorously</strong> (MLflow/W&amp;B) from the first run — hyperparameter provenance is essential for reproducibility and debugging regressions.</li>
+<li><strong>Version adapters independently of the base model</strong>, and keep rollback capability to the previous adapter version at all times.</li>
+<li><strong>Build the feedback loop and monitoring before, not after, initial deployment</strong> — production data is the highest-value input to the next training iteration.</li>
+<li><strong>Always include a schema/format validator</strong> in the inference path for structured-output tasks; never trust raw model output directly downstream.</li>
+<li><strong>Run a human evaluation pass on every meaningful training iteration</strong>, not just automated metrics — especially for hallucination and domain-correctness judgments.</li>
+<li><strong>Treat retraining as a recurring pipeline, not a one-time event</strong> — define explicit triggers (data volume, time elapsed, monitored metric degradation).</li>
+</ol></div>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Best practices consistently prioritize data and process rigor over hyperparameter tuning.</li>
+<li>Reproducibility (experiment tracking, adapter versioning) is a prerequisite for safe iteration, not a nice-to-have.</li>
+<li>Production monitoring and the feedback loop should exist from day one of deployment.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why does dataset curation typically yield a higher return on engineering time than hyperparameter search?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the risk of deploying a fine-tuned model without independent adapter versioning?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">Why is a schema validator a non-negotiable component for structured-output production systems?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-18" data-num="18" data-title="Common Mistakes">
+  <div class="sec-head">
+    <div class="sec-num">18</div>
+    <h2>Common Mistakes</h2>
+  </div>
+  <div class="lead"><ul>
+<li><strong>Training too many epochs on a small dataset</strong>, causing overfitting/memorization rather than generalization.</li>
+<li><strong>Setting LoRA rank/alpha far higher than the task needs</strong>, increasing overfitting risk and training cost without accuracy benefit.</li>
+<li><strong>Skipping a held-out test set</strong>, leading to overly optimistic reported performance that doesn't hold in production.</li>
+<li><strong>Mismatching the prompt template</strong> between fine-tuning and inference (e.g., fine-tuning with one chat template, then serving with a different one) — this silently degrades output quality in ways that are hard to diagnose.</li>
+<li><strong>Fine-tuning on ungoverned data</strong> containing PII/PHI or inconsistent labeling, propagating both compliance risk and quality issues into the model.</li>
+<li><strong>Relying solely on automated metrics</strong>, missing hallucination or domain-correctness failures that only a human reviewer would catch.</li>
+<li><strong>Treating fine-tuning as a one-time project</strong> rather than budgeting for ongoing retraining as the domain evolves.</li>
+<li><strong>Ignoring quantization-compute dtype mismatches</strong> (e.g., misconfigured <code>bnb_4bit_compute_dtype</code>) that silently degrade numerical stability during training.</li>
+<li><strong>Not merging or properly loading the adapter at inference time</strong>, resulting in the base model's (unfine-tuned) behavior being served accidentally.</li>
+<li><strong>Over-indexing on leaderboard benchmarks</strong> instead of building an evaluation set that reflects the enterprise's actual production distribution.</li>
+</ul></div>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Most common mistakes are process failures (missing validation, mismatched templates, ungoverned data), not algorithmic misunderstandings of LoRA/QLoRA.</li>
+<li>Prompt template mismatches are a particularly insidious failure mode because they degrade quality without throwing errors.</li>
+<li>Evaluation set fidelity to the real production distribution matters more than public benchmark performance.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">Why does a prompt template mismatch between training and inference degrade quality silently rather than causing an obvious error?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">What's the practical risk of judging a fine-tuned model purely by public leaderboard-style benchmarks?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">How would you catch a misconfigured quantization compute dtype during development, before it affects a production training run?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-19" data-num="19" data-title="Future Trends">
+  <div class="sec-head">
+    <div class="sec-num">19</div>
+    <h2>Future Trends</h2>
+  </div>
+  <div class="lead"><ul>
+<li><strong>Mixture of Experts (MoE)</strong>: sparse architectures that activate only a subset of parameters per token, offering another axis (alongside PEFT) for decoupling parameter count from inference cost — increasingly relevant as base models for domain fine-tuning.</li>
+<li><strong>Small Language Models (SLMs)</strong>: continued investment in highly capable sub-3B models purpose-built for efficient fine-tuning and edge deployment, narrowing the capability gap with larger models for well-scoped domains.</li>
+<li><strong>Agentic AI</strong>: fine-tuned domain models increasingly serve as one component (a specialized "tool-using" or "reasoning" node) within larger multi-step agentic systems, rather than being the entire system.</li>
+<li><strong>Continual Learning</strong>: techniques for updating a deployed model incrementally as new data arrives, without full retraining cycles or catastrophic forgetting — an active research area directly relevant to the "maintenance and drift" challenges in Section 16.</li>
+<li><strong>Federated Fine-Tuning</strong>: training adapters across distributed, privacy-sensitive data sources (e.g., multiple hospital systems) without centralizing raw data, combining PEFT's efficiency with federated learning's privacy guarantees.</li>
+</ul></div>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>Future directions largely extend the same core theme of this document: decoupling model capability from parameter count and centralized compute.</li>
+<li>Agentic AI reframes domain fine-tuned models as components in larger systems rather than end-to-end solutions.</li>
+<li>Continual and federated learning both target current QLoRA workflow limitations — static snapshots and centralized data requirements, respectively.</li>
+</ul></aside>
+<aside class="callout callout-interview"><h4><span class="callout-icon" aria-hidden="true">&#9670;</span>Interview questions</h4><div class="interview-list"><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q1</span><span class="q-text">How does MoE relate conceptually to PEFT's goal of decoupling capability from active parameter count?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q2</span><span class="q-text">Why is continual learning particularly relevant to the model drift challenge discussed in Section 16?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div><div class="interview-item">
+                      <button class="interview-q" type="button" aria-expanded="false">
+                        <span class="q-index">Q3</span><span class="q-text">What privacy problem does federated fine-tuning solve that centralized QLoRA fine-tuning does not?</span>
+                        <span class="q-toggle" aria-hidden="true">+</span>
+                      </button>
+                      <div class="interview-a"><p>Think it through, then compare notes with a teammate or mentor — these are discussion prompts, not a quiz with a single right answer.</p></div>
+                    </div></div></aside>
+</section>
+<section class="section" id="sec-20" data-num="20" data-title="Learning Roadmap">
+  <div class="sec-head">
+    <div class="sec-num">20</div>
+    <h2>Learning Roadmap</h2>
+  </div>
+  <h3 id="20-beginner">Beginner</h3><ul>
+<li>Transformer architecture fundamentals (attention, tokenization, embeddings).</li>
+<li>The difference between pretraining, instruction tuning, and task-specific fine-tuning (Section 5).</li>
+<li>Hands-on: run inference on an open-weight model locally via Ollama.</li>
+</ul>
+<h3 id="20-intermediate">Intermediate</h3><ul>
+<li>LoRA mathematical foundations (Section 7); implement a from-scratch low-rank adapter on a small linear layer to build intuition before using <code>peft</code>.</li>
+<li>Hugging Face <code>transformers</code> + <code>peft</code> + <code>trl</code> workflow: fine-tune a small model on a public instruction dataset.</li>
+<li>Experiment tracking fundamentals (MLflow or W&amp;B).</li>
+</ul>
+<h3 id="20-advanced">Advanced</h3><ul>
+<li>QLoRA internals (Section 8): quantization theory, NF4 derivation, paged optimizer mechanics.</li>
+<li>Multi-adapter serving with vLLM; adapter versioning and rollback strategy.</li>
+<li>Building a full evaluation suite (Section 14) for a real domain task, including hallucination measurement.</li>
+</ul>
+<h3 id="20-expert-production">Expert / Production</h3><ul>
+<li>Designing the full enterprise architecture (Section 9): feedback loops, retraining triggers, monitoring.</li>
+<li>Cost modeling and TCO analysis (Section 15) for build-vs-buy decisions.</li>
+<li>Exploring MoE, continual learning, and federated fine-tuning as next-generation extensions (Section 19).</li>
+</ul>
+<aside class="callout callout-takeaways"><h4><span class="callout-icon" aria-hidden="true">&#9679;</span>Key takeaways</h4><ul>
+<li>The roadmap deliberately sequences <em>mathematical intuition before tooling</em> — understanding why LoRA works makes debugging fine-tuning runs far more tractable than treating <code>peft</code> as a black box.</li>
+<li>Production-readiness (monitoring, feedback loops, TCO) is its own advanced skill area, distinct from training mechanics.</li>
+</ul>
+<hr /></aside>
+</section>
+<section class="section" id="sec-21" data-num="21" data-title="References">
+  <div class="sec-head">
+    <div class="sec-num">21</div>
+    <h2>References</h2>
+  </div>
+  <div class="lead"><p><strong>Foundational Papers</strong></p>
+<ul>
+<li>Hu, E. J., et al. "LoRA: Low-Rank Adaptation of Large Language Models." arXiv:2106.09685.</li>
+<li>Dettmers, T., et al. "QLoRA: Efficient Finetuning of Quantized LLMs." arXiv:2305.14314.</li>
+<li>Houlsby, N., et al. "Parameter-Efficient Transfer Learning for NLP." (Adapter tuning) arXiv:1902.00751.</li>
+<li>Li, X. L., &amp; Liang, P. "Prefix-Tuning: Optimizing Continuous Prompts for Generation." arXiv:2101.00190.</li>
+<li>Lester, B., et al. "The Power of Scale for Parameter-Efficient Prompt Tuning." arXiv:2104.08691.</li>
+<li>Liu, H., et al. "Few-Shot Parameter-Efficient Fine-Tuning is Better and Cheaper than In-Context Learning." (IA3) arXiv:2205.05638.</li>
+<li>Ouyang, L., et al. "Training language models to follow instructions with human feedback." (InstructGPT/RLHF) arXiv:2203.02155.</li>
+<li>Rafailov, R., et al. "Direct Preference Optimization." arXiv:2305.18290.</li>
+<li>Dao, T., et al. "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness." arXiv:2205.14135.</li>
+<li>Kwon, W., et al. "Efficient Memory Management for Large Language Model Serving with PagedAttention." (vLLM) arXiv:2309.06180.</li>
+</ul>
+<p><strong>Official Documentation</strong></p>
+<ul>
+<li>Hugging Face <code>transformers</code> documentation.</li>
+<li>Hugging Face <code>peft</code> documentation.</li>
+<li>Hugging Face <code>trl</code> documentation.</li>
+<li><code>bitsandbytes</code> GitHub repository and documentation.</li>
+<li><code>vLLM</code> documentation (multi-LoRA serving guide).</li>
+<li>NVIDIA CUDA and Flash Attention documentation.</li>
+</ul>
+<p><strong>GitHub Repositories</strong></p>
+<ul>
+<li><code>huggingface/peft</code></li>
+<li><code>huggingface/trl</code></li>
+<li><code>bitsandbytes-foundation/bitsandbytes</code></li>
+<li><code>vllm-project/vllm</code></li>
+<li><code>artidoro/qlora</code> (original QLoRA release repository)</li>
+</ul>
+<p><strong>Conference Talks / Further Viewing</strong></p>
+<ul>
+<li>NeurIPS 2023 QLoRA presentation (Dettmers et al.).</li>
+<li>Hugging Face community talks on PEFT and efficient fine-tuning (Hugging Face YouTube channel).</li>
+</ul>
+<p><em>Note: verify current arXiv identifiers, paper versions, and repository URLs before publishing externally — this list is a research starting point, not a final citation set.</em></p>
+<hr /></div>
+</section>
+<section class="section" id="sec-22" data-num="22" data-title="Glossary">
+  <div class="sec-head">
+    <div class="sec-num">22</div>
+    <h2>Glossary</h2>
+  </div>
+  <div class="lead"><table>
+<thead>
+<tr>
+<th>Term</th>
+<th>Definition</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Adapter</strong></td>
+<td>A small set of newly introduced, trainable parameters inserted into a frozen pretrained model to enable efficient task adaptation.</td>
+</tr>
+<tr>
+<td><strong>Alpha (α)</strong></td>
+<td>LoRA hyperparameter scaling the magnitude of the low-rank update, decoupled from rank.</td>
+</tr>
+<tr>
+<td><strong>BERTScore</strong></td>
+<td>An evaluation metric using contextual embeddings to measure semantic similarity between generated and reference text.</td>
+</tr>
+<tr>
+<td><strong>BitsAndBytes</strong></td>
+<td>A library implementing quantized (4-bit/8-bit) neural network layers and paged optimizers.</td>
+</tr>
+<tr>
+<td><strong>BLEU</strong></td>
+<td>An n-gram precision-based metric traditionally used for machine translation evaluation.</td>
+</tr>
+<tr>
+<td><strong>Catastrophic Forgetting</strong></td>
+<td>Loss of previously learned general capabilities as a result of aggressive task-specific fine-tuning.</td>
+</tr>
+<tr>
+<td><strong>DPO (Direct Preference Optimization)</strong></td>
+<td>A simplified alternative to RLHF that optimizes directly on preference pairs without a separate reward model.</td>
+</tr>
+<tr>
+<td><strong>Double Quantization</strong></td>
+<td>Quantizing the quantization scaling constants themselves, to further reduce memory overhead.</td>
+</tr>
+<tr>
+<td><strong>DSLM (Domain-Specific Language Model)</strong></td>
+<td>A language model fine-tuned and evaluated for a narrow domain or task family rather than general-purpose use.</td>
+</tr>
+<tr>
+<td><strong>Flash Attention</strong></td>
+<td>An IO-aware attention kernel implementation that reduces memory usage and increases throughput.</td>
+</tr>
+<tr>
+<td><strong>Full Fine-Tuning</strong></td>
+<td>Updating all parameters of a pretrained model during training.</td>
+</tr>
+<tr>
+<td><strong>Hallucination</strong></td>
+<td>Model-generated content that is fluent but factually or procedurally incorrect / unsupported by source material.</td>
+</tr>
+<tr>
+<td><strong>IA3</strong></td>
+<td>A PEFT technique that learns per-activation rescaling vectors rather than additive low-rank updates.</td>
+</tr>
+<tr>
+<td><strong>Instruction Tuning</strong></td>
+<td>Fine-tuning a base model on (instruction, response) pairs to teach instruction-following behavior.</td>
+</tr>
+<tr>
+<td><strong>LoRA (Low-Rank Adaptation)</strong></td>
+<td>A PEFT technique representing weight updates as the product of two small low-rank matrices, added to frozen pretrained weights.</td>
+</tr>
+<tr>
+<td><strong>MoE (Mixture of Experts)</strong></td>
+<td>A sparse architecture activating only a subset of model parameters ("experts") per input token.</td>
+</tr>
+<tr>
+<td><strong>NF4 (4-bit NormalFloat)</strong></td>
+<td>A quantization data type with quantile-based bins optimized for normally-distributed neural network weights.</td>
+</tr>
+<tr>
+<td><strong>Paged Optimizer</strong></td>
+<td>An optimizer implementation that pages optimizer state between GPU and CPU memory to absorb memory usage spikes.</td>
+</tr>
+<tr>
+<td><strong>PEFT (Parameter-Efficient Fine-Tuning)</strong></td>
+<td>An umbrella term for techniques that fine-tune a small subset of parameters while freezing the majority of a pretrained model.</td>
+</tr>
+<tr>
+<td><strong>Prefix Tuning</strong></td>
+<td>A PEFT technique prepending learnable continuous vectors to the keys/values at every transformer layer.</td>
+</tr>
+<tr>
+<td><strong>Prompt Tuning</strong></td>
+<td>A PEFT technique prepending learnable "soft prompt" embeddings only to the model's input.</td>
+</tr>
+<tr>
+<td><strong>QLoRA</strong></td>
+<td>LoRA fine-tuning applied on top of a 4-bit quantized frozen base model, using NF4, double quantization, and paged optimizers.</td>
+</tr>
+<tr>
+<td><strong>Rank (r)</strong></td>
+<td>The dimensionality of the low-rank matrices in LoRA, controlling adapter capacity.</td>
+</tr>
+<tr>
+<td><strong>RLHF (Reinforcement Learning from Human Feedback)</strong></td>
+<td>A technique aligning model outputs to human preferences via a learned reward model and reinforcement learning.</td>
+</tr>
+<tr>
+<td><strong>ROUGE</strong></td>
+<td>A recall-oriented n-gram/subsequence overlap metric commonly used for summarization evaluation.</td>
+</tr>
+<tr>
+<td><strong>SFT (Supervised Fine-Tuning)</strong></td>
+<td>Fine-tuning a model on labeled (input, output) example pairs using standard supervised loss.</td>
+</tr>
+<tr>
+<td><strong>Transfer Learning</strong></td>
+<td>Reusing representations learned on a source task/domain to improve learning efficiency on a related target task.</td>
+</tr>
+<tr>
+<td><strong>vLLM</strong></td>
+<td>A high-throughput LLM inference serving engine using PagedAttention and continuous batching, with multi-LoRA serving support.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<p><em>End of document. This research base is intended as the source material for a blog series, internal engineering wiki, training curriculum, and conference presentation on domain-specific QLoRA fine-tuning.</em></p></div>
+</section></div>
+
+    <footer class="doc-footer">
+      <div class="rule"></div>
+      <p>Internal engineering research document — source material for a blog series, engineering wiki, training curriculum, and conference talk on domain-specific QLoRA fine-tuning.</p>
+      <p>Verify figures marked as illustrative (memory footprints, hardware sizing) against your own base model and hardware before quoting externally.</p>
+    </footer>
+  </main>
+</div>
+
+<button class="back-top" id="backTop" aria-label="Back to top">↑</button>
+
+<script>
+mermaid.initialize({
+  startOnLoad:false,
+  theme:'base',
+  themeVariables:{
+    background:'#161B23',
+    primaryColor:'#1D242F',
+    primaryBorderColor:'#3A4353',
+    primaryTextColor:'#E9ECF3',
+    lineColor:'#5FE2C9',
+    secondaryColor:'#242C39',
+    tertiaryColor:'#161B23',
+    fontFamily:'IBM Plex Mono, monospace',
+    fontSize:'13px'
+  },
+  flowchart:{ curve:'basis', htmlLabels:true, padding:12 }
+});
+
+document.addEventListener('DOMContentLoaded', function(){
+
+  // ---- Build TOC from section headers ----
+  var sections = Array.from(document.querySelectorAll('.section[data-num]'));
+  var tocList = document.getElementById('tocList');
+  sections.forEach(function(sec){
+    var li = document.createElement('li');
+    var a = document.createElement('a');
+    a.href = '#' + sec.id;
+    a.innerHTML = '<span class="n">' + sec.dataset.num + '</span><span class="t">' + sec.dataset.title + '</span>';
+    li.appendChild(a);
+    tocList.appendChild(li);
+  });
+  var tocLinks = Array.from(tocList.querySelectorAll('a'));
+
+  // ---- Render mermaid diagrams ----
+  mermaid.run({ querySelector: '.mermaid' }).catch(function(e){ console.warn('mermaid render issue', e); });
+
+  // ---- Scroll progress bar ----
+  var progress = document.getElementById('progress');
+  function onScroll(){
+    var doc = document.documentElement;
+    var scrollTop = doc.scrollTop || document.body.scrollTop;
+    var height = doc.scrollHeight - doc.clientHeight;
+    var pct = height > 0 ? (scrollTop / height) * 100 : 0;
+    progress.style.width = pct + '%';
+
+    // scrollspy
+    var pos = scrollTop + 140;
+    var current = sections[0];
+    sections.forEach(function(sec){
+      if (sec.offsetTop <= pos) current = sec;
+    });
+    tocLinks.forEach(function(l){ l.classList.remove('active'); });
+    if (current){
+      var active = tocList.querySelector('a[href="#' + current.id + '"]');
+      if (active){
+        active.classList.add('active');
+        // keep active item in view within sidebar
+        var sb = document.getElementById('sidebar');
+        var r = active.getBoundingClientRect(), sr = sb.getBoundingClientRect();
+        if (r.top < sr.top || r.bottom > sr.bottom){
+          active.scrollIntoView({block:'nearest'});
+        }
+      }
+    }
+
+    // back to top button
+    document.getElementById('backTop').classList.toggle('show', scrollTop > 700);
+  }
+  document.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+
+  document.getElementById('backTop').addEventListener('click', function(){
+    window.scrollTo({top:0, behavior:'smooth'});
+  });
+
+  // ---- Mobile nav ----
+  var sidebar = document.getElementById('sidebar');
+  var scrim = document.getElementById('scrim');
+  var navToggle = document.getElementById('navToggle');
+  function closeNav(){ sidebar.classList.remove('open'); scrim.classList.remove('show'); navToggle.setAttribute('aria-expanded','false'); }
+  function openNav(){ sidebar.classList.add('open'); scrim.classList.add('show'); navToggle.setAttribute('aria-expanded','true'); }
+  navToggle.addEventListener('click', function(){
+    sidebar.classList.contains('open') ? closeNav() : openNav();
+  });
+  scrim.addEventListener('click', closeNav);
+  tocLinks.forEach(function(l){ l.addEventListener('click', closeNav); });
+
+  // ---- Interview question accordions ----
+  document.querySelectorAll('.interview-q').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var item = btn.closest('.interview-item');
+      var wasOpen = item.classList.contains('open');
+      item.classList.toggle('open');
+      btn.setAttribute('aria-expanded', String(!wasOpen));
+    });
+  });
+
+  // ---- "Mark section read" toggles ----
+  sections.forEach(function(sec){
+    var head = sec.querySelector('.sec-head');
+    if (!head) return;
+    var btn = document.createElement('button');
+    btn.className = 'read-toggle';
+    btn.type = 'button';
+    btn.innerHTML = '<span class="box"></span><span class="label">Mark read</span>';
+    var key = 'qlora-read-' + sec.dataset.num;
+    function refresh(){
+      var done = localStorage.getItem(key) === '1';
+      btn.classList.toggle('done', done);
+      btn.querySelector('.label').textContent = done ? 'Read' : 'Mark read';
+    }
+    btn.addEventListener('click', function(){
+      var done = localStorage.getItem(key) === '1';
+      localStorage.setItem(key, done ? '0' : '1');
+      refresh();
+    });
+    refresh();
+    var wrap = document.createElement('div');
+    wrap.style.marginLeft = 'auto';
+    wrap.style.paddingTop = '6px';
+    wrap.appendChild(btn);
+    head.appendChild(wrap);
+  });
+
+  // ---- Signature matrix visual: fill cells, animate on load ----
+  function fillMat(id, count, cls){
+    var el = document.getElementById(id);
+    if (!el) return;
+    var frag = document.createDocumentFragment();
+    for (var i=0;i<count;i++){
+      var d = document.createElement('div');
+      d.className = 'sig-cell' + (cls ? ' ' + cls : '');
+      d.style.animationDelay = (i*4) + 'ms';
+      frag.appendChild(d);
+    }
+    el.appendChild(frag);
+  }
+  fillMat('matW0', 81, '');
+  fillMat('matB', 18, 'train');
+  fillMat('matA', 18, 'train');
+});
+</script>
+</body>
+</html>
