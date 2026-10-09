@@ -1,0 +1,366 @@
+Optimized tool selectionI’m mapping the agent architecture in this repo and will read the core definitions and flow so I can explain each agent’s role accurately.
+
+Searched for regex `class .*Agent|Agent\(|agents\.|registry|profile` (`**/app/**`), 155 results
+
+I’ve narrowed it to the core orchestration and request flow; I’m checking the exact workspace root path before summarizing the agent network and their responsibilities.
+ 
+
+## Project architecture at a glance
+
+This project is organized as a 2-stage, evidence-driven modernization workflow:
+
+1. Stage A: normalize the incoming modernization request in `request_agent.py`
+2. Stage B: inspect the repository, classify technology, analyze risks, aggregate findings, and decide feasibility in `assessment_orchestrator.py`
+
+The top-level entry point is `agent.py`, which wires both stages together and returns a human-approval gate. The design is explained in `README.md` and `agent-design.md`.
+
+The overall process is:
+
+- Raw request arrives
+- Request Intake agent normalizes it
+- Repository discovery identifies files and modules
+- Profile registry chooses a modernization profile, like the Java 8 → 17 rules in `profile.py`
+- Specialized assessment agents inspect dependencies, source, frameworks, config, and quality/security
+- Aggregator combines results into one assessment
+- Feasibility agent decides if the migration is feasible and whether a human must approve
+
+---
+
+## The main agents and what they do
+
+### 1) Root orchestrator: MiraModernizePlatform
+Location: `agent.py`
+
+What it does:
+- Calls the request intake agent first
+- If the request is incomplete, it stops early
+- If it is complete, it runs the assessment orchestration
+- Returns a structured status including approval requirements
+
+Purpose:
+- Acts as the workflow entry point
+- Connects Stage A and Stage B
+- Keeps the system modular instead of one giant prompt
+
+Why it is needed:
+- Modernization is a multi-step process; the output of Stage A is required before Stage B can run reliably
+- It prevents accidental analysis of incomplete migration requests
+
+When it is useful:
+- Any time a modernization project begins
+- When you want a single, consistent entry point across APIs or UI
+
+---
+
+### 2) Request intake agent: ModernizationRequestAgent
+Location: `request_agent.py`
+
+What it does:
+- Parses raw dicts or free-text requests
+- Extracts repository info, source language/version, target language/version, change type, and scope
+- Marks missing fields such as repository URL or target version
+
+Purpose:
+- Converts messy user input into a consistent object: ModernizationRequest
+- Separates intake validation from deep repository analysis
+
+Why it is needed:
+- An LLM alone is not reliable enough to reliably normalize migration requests without a structured schema
+- This reduces errors and ensures the rest of the pipeline sees predictable data
+
+When it is useful:
+- Before analysis begins
+- When requests come from forms, chat, or natural-language prompts
+
+---
+
+### 3) Assessment orchestrator: AssessmentOrchestrator
+Location: `assessment_orchestrator.py`
+
+What it does:
+- Prepares the repository
+- Saves request artifacts
+- Runs repository discovery
+- Selects the target modernization profile
+- Invokes all assessment agents in sequence
+- Aggregates findings
+- Runs feasibility analysis
+- Generates report artifacts
+
+Purpose:
+- This is the central execution engine for Stage B
+
+Why it is needed:
+- It coordinates many specialized agents and ensures they share the same repository context and artifact outputs
+- It prevents each agent from acting in isolation
+
+When it is useful:
+- In every real modernization assessment
+- When you need end-to-end assessment rather than ad hoc analysis
+
+---
+
+### 4) Profile selector / registry
+Locations:
+- `registry.py`
+- `base.py`
+- `profile.py`
+
+What it does:
+- Resolves the correct modernization rules based on source language/version and target version
+- Chooses a profile such as Java 8 → 17
+- Provides per-profile rules for dependencies, source, framework, and configuration issues
+
+Purpose:
+- Makes the pipeline aware of technology-specific modernization constraints
+- Avoids generic “one-size-fits-all” assessments
+
+Why it is needed:
+- Different migrations require different checks:
+  - Java 8 → 17 is not the same as Python upgrade or .NET modernization
+- It keeps the assessment logic reusable and extensible
+
+When it is useful:
+- Any migration where legacy environment rules matter
+- When adding new migration domains later
+
+---
+
+### 5) Repository discovery agent: RepositoryDiscoveryAgent
+Location: `repository_discovery.py`
+
+What it does:
+- Lists files in the repo
+- Detects build files
+- Identifies source directories
+- Detects tests
+- Identifies config/deployment files
+- Builds a repository manifest
+
+Purpose:
+- Creates the structural view of the codebase before deeper analysis
+
+Why it is needed:
+- Later agents rely on a known repo structure
+- Without this, the analysis would be unfocused and inconsistent
+
+When it is useful:
+- At the beginning of every repository assessment
+- When a team wants to understand module layout, test layout, and deployment surfaces
+
+---
+
+### 6) Technology discovery agent: LlmTechnologyAgent and TechnologyDiscoveryAgent
+Locations:
+- `llm_technology_agent.py`
+- `technology_discovery.py`
+
+What they do:
+- Infer language, frameworks, build tools, runtimes, and databases from manifests and file samples
+- Capture evidence from files like pom.xml, package.json, pyproject.toml, Dockerfiles, and config files
+- Produce a TechnologyInventory
+
+Purpose:
+- Establish the real technical baseline before making migration decisions
+
+Why it is needed:
+- The request may say “Java” but the repo might actually contain Spring Boot, Struts, or custom build tooling
+- The migration plan depends on the actual stack, not assumptions
+
+When it is useful:
+- Before planning a version upgrade or application modernization
+- When a repository is unfamiliar or partially documented
+
+---
+
+### 7) Dependency analysis agent: DependencyAnalysisAgent
+Location: `dependency_analysis.py`
+
+What it does:
+- Reads build descriptors like pom.xml, Gradle, package.json, and requirements files
+- Identifies direct dependencies
+- Compares them against incompatible rules for the target profile
+- Produces a dependency inventory and dependency findings
+
+Purpose:
+- Detects libraries likely to fail under the target platform
+
+Why it is needed:
+- Upgrades often fail because of library incompatibility rather than source code alone
+- This is one of the biggest migration risks
+
+When it is useful:
+- Java 8 → 17, framework upgrades, library modernization, cloud migration, and compatibility reviews
+
+---
+
+### 8) Source analysis agent: SourceAnalysisAgent
+Location: `source_analysis.py`
+
+What it does:
+- Reads source code samples
+- Finds deprecated APIs, removed JDK methods, unsafe patterns, reflection, platform-specific code, or old runtime assumptions
+- Produces source-level findings
+
+Purpose:
+- Detects code that compiles today but breaks under the target runtime
+
+Why it is needed:
+- Runtime and API changes are often the real blockers after dependency compatibility is checked
+- This is where migration risk turns into engineering effort
+
+When it is useful:
+- When moving to newer language or framework versions
+- When there are suspicious APIs or legacy constructs in Java/.NET/Python/Node code
+
+---
+
+### 9) Framework analysis agent: FrameworkAnalysisAgent
+Location: `framework_analysis.py`
+
+What it does:
+- Looks for legacy frameworks and framework-version incompatibilities
+- Flags issues like Struts 1.x, older Spring, AngularJS, JVM frameworks, or old .NET framework setups
+- Suggests migration direction
+
+Purpose:
+- Evaluates whether the application is architecture-level blocked by its current framework stack
+
+Why it is needed:
+- Framework upgrades can require redesigns, not just dependency bumps
+- This is often the biggest architectural decision in modernization
+
+When it is useful:
+- Legacy app modernization
+- Platform or framework replacement planning
+- App modernization where the framework is older than the target runtime
+
+---
+
+### 10) Configuration analysis agent: ConfigurationAnalysisAgent
+Location: `configuration_analysis.py`
+
+What it does:
+- Reviews build scripts, properties, YAML manifests, Dockerfiles, and deployment config
+- Looks for outdated compiler settings, missing runtime configuration, insecure defaults, and incompatible deployment patterns
+
+Purpose:
+- Captures risk in configuration, not just code
+
+Why it is needed:
+- Many modernizations fail because a Docker image, JVM flag, or property file is still pinned to the old environment
+- Not all migration problems are in code
+
+When it is useful:
+- Java/JVM upgrades, cloud modernization, containerization, and deployment migrations
+
+---
+
+### 11) Quality and security agent: QualitySecurityAgent
+Location: `quality_security.py`
+
+What it does:
+- Looks at test structure, repo health, and sample code
+- Identifies missing tests and security issues
+- Redacts secrets before reporting them
+- Produces quality/security findings
+
+Purpose:
+- Ensures the modernization is not being planned on a brittle or risky codebase
+
+Why it is needed:
+- A migration without a test baseline is risky
+- Secret leakage must not appear in assessment artifacts
+
+When it is useful:
+- Early-stage risk assessment
+- Security review before major code changes
+- Scenarios where test coverage and secret exposure are important
+
+---
+
+### 12) Aggregator agent: AssessmentAggregatorAgent
+Location: `assessment_aggregator.py`
+
+What it does:
+- Deduplicates findings from all agents
+- Groups related risks
+- Summarizes the overall modernization state
+- Produces an executive AssessmentReport
+
+Purpose:
+- Turns fragmented specialist output into one coherent assessment
+
+Why it is needed:
+- Without aggregation, the project would have many disconnected findings and no unified story
+- Decision-makers need a single report, not a pile of raw agent output
+
+When it is useful:
+- After all analysis agents finish
+- When preparing stakeholder-facing summaries or approval packets
+
+---
+
+### 13) Feasibility agent: FeasibilityAgent
+Location: `feasibility.py`
+
+What it does:
+- Reviews the assessment report
+- Classifies status as feasible, conditionally feasible, or blocked
+- Lists blockers, prerequisites, and viable migration approaches
+- Forces a human approval requirement
+
+Purpose:
+- Determines whether the project is actually safe to proceed to the next phase
+
+Why it is needed:
+- This is the governance barrier. It prevents autonomous execution from moving forward without human judgment
+- Migration strategy is not just technical; it is also operational and architectural
+
+When it is useful:
+- Before committing to large migration work
+- When a project has critical issues or unclear architecture decisions
+
+---
+
+## How all these agents fit together
+
+The flow in this project is intentionally layered:
+
+- `agent.py` starts the workflow
+- `request_agent.py` validates the request
+- `assessment_orchestrator.py` orchestrates the specialist agents
+- `repository_discovery.py` builds the repository map
+- `llm_technology_agent.py` identifies the stack
+- `dependency_analysis.py`, `source_analysis.py`, `framework_analysis.py`, `configuration_analysis.py`, and `quality_security.py` inspect risks
+- `assessment_aggregator.py` creates the consolidated report
+- `feasibility.py` decides whether the project is ready for human approval
+
+This is exactly why the project is described in `agent-design.md` as a modular, single-responsibility agent architecture instead of a single-chatbot-style analysis.
+
+---
+
+## Why this agent model is valuable
+
+This design is useful because modernization work is not a single question. It is a combination of:
+
+- repo discovery
+- technology detection
+- dependency health
+- source compatibility
+- framework risk
+- configuration drift
+- security and validation readiness
+- executive summary and approval gating
+
+A single agent doing all of that would be brittle, less traceable, and harder to validate. The distributed agent model keeps each step narrow, evidence-backed, and easier to trust.
+
+If you want, I can next turn this into a cleaner “agent inventory” document with:
+- agent name
+- file path
+- responsibility
+- input/output
+- trigger condition
+- human approval point
+
+in a single compact list.

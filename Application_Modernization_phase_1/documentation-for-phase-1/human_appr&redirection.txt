@@ -1,0 +1,5 @@
+plan the implementation for a small update ,in human approval, after selecting the alternatives the system status is set to decision approved, but it is not redirecting to stage c ?
+
+now after approval , it should redirect to stage c for migration plan.
+
+Also what if human approval visits back,and wanted to change the approval plan , so plan accordingly.

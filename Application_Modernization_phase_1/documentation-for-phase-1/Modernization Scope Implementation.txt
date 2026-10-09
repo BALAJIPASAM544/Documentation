@@ -1,0 +1,26 @@
+**Modernization Scope: Implementation Report**
+
+**Purpose**
+Modernization scope limits which repository areas Stage B analyzes and which components Stage C may include in its generated migration blueprint. Before these changes, selective scope was advisory in places: component matching could include unintended files, and a selection with no matches could silently widen analysis to all files.
+
+**Changes Made**
+- In `scope_utils.py`, module matching now anchors to the selected repository-relative path. Component paths match an exact file or descendants of the selected directory; substring matches were removed.
+- Selective scope paths are validated during repository preprocessing in `agent.py`. Empty selections, missing paths, paths outside the repository, and module paths that are not directories fail the pipeline with an explanation.
+- An analyzer with no files matching a valid scope receives an empty list rather than the entire file list.
+- Named components can be entered separately in `IntakePage.tsx`. The values are included in the frontend request type and carried into the backend `Scope` by `request_agent.py`.
+- Named components match exact directory names or filename stems, not arbitrary substrings. Validation rejects names not found in the repository.
+- The planner prompt in `migration_planner.py` now includes the scope. Before saving a blueprint, it checks each task’s `affectedComponent`. Out-of-scope tasks block blueprint creation; repository setup and build/test validation tasks are allowed to be global.
+- Scoped fallback plans no longer add generic build, dependency, or source transformation tasks when there are no relevant findings.
+
+**Current Status**
+**Implemented and verified, with remaining limitations.** The backend suite passed with 23 tests; the frontend production build passed; editor diagnostics were clear. The Python test run used `PYTHON_DOTENV_DISABLED=true` because the local `.env` formatting issue can interfere with app startup.
+
+**Remaining Limitations**
+- Named components currently mean exact directory names or filename stems; class or symbol names inside source files are not resolved.
+- Stage C enforcement checks the task’s `affectedComponent` label. It does not inspect the task description or action, so it is a guard against mislabeled/out-of-scope tasks, not a formal proof that every described action respects scope.
+- The model includes a `directory` scope type, but the intake UI and filtering behavior do not support it as a distinct mode.
+- If a valid scope has no candidate files for an individual analyzer, that analyzer receives an empty input; this avoids widening scope but does not itself generate a “no analyzable files” error.
+
+
+ #leave Constraints blank and keep Scope at Entire Repository to run the normal pipeline.
+

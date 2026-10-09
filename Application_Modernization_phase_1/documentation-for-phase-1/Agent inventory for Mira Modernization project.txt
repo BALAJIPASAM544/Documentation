@@ -1,0 +1,221 @@
+Agent inventory for this project
+Below is the practical list of agents in this repo, what each one does, why it exists, where it fits in the workflow, and when it is most useful.
+
+1) Root orchestrator
+File: agent.py
+Role: Platform entrypoint / workflow coordinator
+Purpose:
+Starts the modernization flow
+Runs request intake first
+Checks whether the request is complete
+Runs Stage B assessment when the request is valid
+Why needed:
+Modernization is a multi-step process; this gives a single, controlled entry point
+Avoids running deep analysis on incomplete or invalid inputs
+Involvement in the process:
+First step in the whole platform flow
+When useful:
+Any time a modernization request is created or processed
+2) Request intake agent
+File: request_agent.py
+Role: Stage A request normalization agent
+Purpose:
+Takes raw user input or structured JSON and transforms it into a normalized ModernizationRequest
+Extracts repository details, source/target tech, scope, and missing info
+Why needed:
+LLM requests are often ambiguous or incomplete
+The rest of the workflow depends on a clean, structured request object
+Involvement in the process:
+Runs before repository analysis
+When useful:
+For chat-based requests, form submissions, or API calls with incomplete input
+Whenever you want consistent request validation before costly analysis
+3) Assessment orchestrator
+File: assessment_orchestrator.py
+Role: Stage B workflow engine
+Purpose:
+Prepares the repo
+Selects a modernization profile
+Runs scanning and analysis agents
+Aggregates findings
+Runs feasibility evaluation
+Saves artifacts for downstream reporting
+Why needed:
+This is the central conductor for all assessment work
+It ensures the agents operate on the same repository context and artifact flow
+Involvement in the process:
+Main driver of the assessment pipeline
+When useful:
+For any complete modernization assessment
+When you want end-to-end evidence collection
+4) Profile registry
+Files:
+registry.py
+base.py
+profile.py
+Role: Migration profile resolver
+Purpose:
+Chooses the correct modernization rules for the request
+Keeps technology-specific checks separate from general orchestration
+Why needed:
+A Java 8 → 17 upgrade is not the same as a Python modernization
+Rules should adapt to the request context
+Involvement in the process:
+Selects the active profile before the analysis agents run
+When useful:
+When implementing domain-specific modernization rules
+When supporting multiple technology paths
+5) Repository discovery agent
+File: repository_discovery.py
+Role: Repository structure assessment agent
+Purpose:
+Maps the repository
+Detects source directories, build files, configs, and test directories
+Produces a RepositoryManifest
+Why needed:
+Other agents need a structured repo view to avoid blind scanning
+It gives the workflow consistent evidence about the application layout
+Involvement in the process:
+First analysis step inside Stage B
+When useful:
+At the beginning of a repo audit
+When understanding module layout and deployment shape
+6) Technology discovery agent
+Files:
+llm_technology_agent.py
+technology_discovery.py
+Role: Stack detection agent
+Purpose:
+Identifies the actual language, framework, build tool, database, and runtime
+Uses repository evidence instead of guesses
+Why needed:
+The request may not match the real repo
+The migration plan depends on the actual technology inventory
+Involvement in the process:
+After repository discovery, before detailed risk analysis
+When useful:
+Unknown repos
+Legacy codebases with unclear tech stacks
+Migration planning based on evidence
+7) Dependency analysis agent
+File: dependency_analysis.py
+Role: Dependency compatibility agent
+Purpose:
+Reviews declared dependencies
+Flags packages incompatible with the target platform
+Produces dependency inventory and findings
+Why needed:
+Library compatibility is a major cause of migration failure
+It helps catch upgrade blockers early
+Involvement in the process:
+Evaluates dependency risk in the assessment pipeline
+When useful:
+Version upgrades
+Library modernization
+Java, .NET, Python, Node ecosystem changes
+8) Source analysis agent
+File: source_analysis.py
+Role: Source compatibility risk agent
+Purpose:
+Reviews source code for deprecated or incompatible APIs, removed runtime constructs, legacy patterns, and risky code
+Why needed:
+Code can compile today but fail under a newer runtime or platform
+This is where many modernization issues become concrete
+Involvement in the process:
+Checks project source after repo and technology discovery
+When useful:
+Upgrading JDK, runtime, language versions, or APIs
+Detecting code that needs refactoring before migration
+9) Framework analysis agent
+File: framework_analysis.py
+Role: Framework migration risk agent
+Purpose:
+Detects outdated or incompatible frameworks
+Highlights framework-level blockers and migration directions
+Why needed:
+Framework upgrades can require architectural change, not just dependency updates
+This is often the most consequential modernization risk
+Involvement in the process:
+Evaluates framework compatibility and migration impact
+When useful:
+Legacy apps with old web frameworks
+Spring/Struts/Angular/.NET Framework modernization
+10) Configuration analysis agent
+File: configuration_analysis.py
+Role: Build and deployment config risk agent
+Purpose:
+Reviews build files, property files, Dockerfiles, YAML, and deployment config
+Identifies incompatible configuration patterns and deployment assumptions
+Why needed:
+Migration often fails because configuration is still tied to old runtime assumptions
+This agent catches config drift and deployment mismatch
+Involvement in the process:
+Examines config files and runtime/deployment metadata
+When useful:
+Java migration, cloud migration, containerization, CI/CD modernization
+11) Quality and security agent
+File: quality_security.py
+Role: Security + validation readiness agent
+Purpose:
+Finds missing tests, security issues, risky code, and secret exposure
+Redacts secrets in findings
+Why needed:
+A migration should not proceed without a reasonable validation baseline
+Security risk reporting must be safe and privacy-aware
+Involvement in the process:
+Provides non-functional risk findings
+When useful:
+Security reviews
+Before major refactors or modernization rollout
+Any project with uncertain test coverage
+12) Assessment aggregator agent
+File: assessment_aggregator.py
+Role: Consolidation agent
+Purpose:
+Deduplicates findings
+Combines all evidence into a single summary
+Produces a structured AssessmentReport
+Why needed:
+Without aggregation, the project would have many disconnected results
+Stakeholders need one coherent view
+Involvement in the process:
+Runs after all specific analysis agents complete
+When useful:
+Preparing final portfolio or stakeholder-ready modernization assessment
+13) Feasibility agent
+File: feasibility.py
+Role: Governance / approval decision agent
+Purpose:
+Classifies whether the modernization is feasible
+Identifies blockers, prerequisites, approaches, and alternatives
+Requires human approval before moving forward
+Why needed:
+Modernization is not just technical; it has business and architecture consequences
+This creates a human-in-the-loop safety boundary
+Involvement in the process:
+Final assessment step before approval
+When useful:
+Any project with risky or ambiguous migration decisions
+When a team needs a clear go/no-go signal
+Short summary of the workflow
+The project uses a layered agent architecture:
+
+Request normalization
+Repository discovery
+Technology detection
+Dependency and source analysis
+Framework and configuration checks
+Security and quality review
+Aggregation
+Feasibility + approval gating
+That structure is deliberate: each agent has one clear responsibility, which makes the workflow more reliable, explainable, and safer.
+
+Why this agent setup matters here
+This project is a modernization platform, not a single code-analysis prompt. Modernization needs:
+
+structured intake
+evidence-based analysis
+technology-specific rules
+risk separation by category
+human approval before action
+So the agent design is necessary because the problem is too complex for one monolithic agent to handle safely.

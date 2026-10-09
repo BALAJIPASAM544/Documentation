@@ -1,0 +1,73 @@
+
+
+Please find the below details and open questions regarding the resume data extraction workflow
+
+Scope
+
+Our understanding is that the use case involves processing resumes received through S3 in batches, extracting the required candidate information using AI, and making the structured output available for integration with the Hubble platform.
+
+The expected candidate information includes:
+
+Personal information
+Skills
+Work experience
+Educational details
+
+The AI is expected to return the extracted information as a structured/nested JSON object, which can then be consumed by the Hubble team for further integration.
+
+Questions
+
+1. Resume Processing Flow
+
+We will be processing resumes in batches. Could you please confirm the maximum number of resumes that can be processed per batch?
+If the S3 bucket is not publicly accessible, we plan to generate signed URLs to access the resumes and provide the resume content as input to the AI processing flow. Please confirm if this approach is expected.
+Is there any additional processing, validation, or transformation expected before the resumes are sent for AI extraction?
+
+Do not process more than 500 per batch, We have about 3 Lakh resumes to initially process these needs to be picked based on the time and date stamp those files are added in S3 Bucket. 
+
+S3 should be publicly accessible already, and we can whitelist additional IP’s as needed
+
+Like we discussed, Basic Details, Education, Organization, Skills - While we are extracting the details we also need to build our databases on these data so that we reduce the dependency on AI. 
+
+2. AI Extraction & Response Format
+
+We plan to use AI to extract the required candidate information
+
+We are planning for the AI to return this information as a structured/nested JSON object.
+
+Could you please confirm whether this JSON response can be consumed directly by the Hubble team for integration into Hubble? If there is an existing schema or expected response format, please share it with us.
+
+Chandu to confirm the response format
+
+3. AI Model / API
+
+Could you please confirm whether we can use the Mira Core APIs for resume processing and information extraction, or whether we are expected to use OpenAI/Gemini APIs?
+
+The plan is to use Azure Credits, the model can be chosen based on accuracy. 
+
+4. Supported Resume File Types
+
+Could you also confirm which resume file formats need to be supported at this stage, such as:
+
+PDF
+DOCX
+DOC
+Any other formats
+
+I think this should be enough. 
+
+5. Note
+
+Please also confirm if there are any additional requirements within the current scope that need to be performed before the extracted data is passed to Hubble.
+
+Access Requests
+
+Could you please provide access to the following resources so that we can get started with the implementation?
+
+MARS code repository access - Deepika will give you access
+S3 bucket access for sample resumes - Chandu to work with DevOps 
+Database access with read and write permissions - Chandu to confirm how do we do this, We likely don’t want to push this directly to our Prod. 
+Any existing OpenAI or Gemini API keys configured for this project - No
+Any existing API collections, such as Postman collections - No
+
+Please grant the required access to the following developers:

@@ -1,0 +1,28 @@
+Scope
+
+Our understanding is that the use case involves processing resumes received through S3 in batches, extracting the required candidate information using AI, and making the structured output json  will be stored in that in output folder of S3 bucket.
+
+The expected candidate information includes:
+
+Personal information
+Skills
+Work experience
+Educational details
+
+The AI is expected to return the extracted information as a structured/nested JSON object, which can then be consumed by the Hubble team for further integration.
+
+
+1. Resume Processing Flow
+Do not process more than 500 per batch, We have about 3 Lakh resumes to initially process these needs to be picked based on the time and date stamp those files are added in S3 Bucket. 
+2.We will be getting candidate resume from an API, which is a signed URL from input folder in S3 bucket. We need to extract buffer data,or pass that URL directly ,so AI can read context directly.
+It will be passed along with system prompt which contains all the information that need to be extacted from Resume.
+
+
+3. Now, we will be storing the output JSON in a JSON file per Resume and storing in another output folder of S3 bucket.
+
+NOTE:----
+Its a vast data, there is a particular format for naming convention to store JSON file, so that we can keep track of failed files.
+We will be supporting PDF, DOC,DOCX as file structures.
+Process these needs to be picked based on the time and date stamp those files are added in S3 Bucket. 
+
+Edge cases: If the process failed while processing a resume,we need to try retry mechanism,and resume the process to complete the failed resume, we shouldn't  process already processed resume.
