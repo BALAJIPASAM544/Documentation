@@ -1,0 +1,349 @@
+================================================================================
+MIRA MODERNIZE PLATFORM - COMPREHENSIVE AGENT REFERENCE GUIDE
+================================================================================
+
+PLATFORM ARCHITECTURE & RUNTIME SUMMARY
+--------------------------------------------------------------------------------
+1. Agent Orchestration Framework: Google Agent Development Kit (ADK)
+   - Defines agent hierarchies, base classes (AdkBaseAgent), sequential flows
+     (SequentialAgent), and parallel execution groups (ParallelAgent).
+   - Each agent wraps or instantiates an ADK LlmAgent definition.
+
+2. LLM Execution Engine: Azure OpenAI (gpt-6-luna)
+   - Whenever an agent makes a real LLM call for reasoning, code analysis,
+     planning, or code rewriting, it routes through app/agents/assessment/llm_utils.py
+     using the AzureOpenAI SDK pointing to the deployed gpt-6-luna model.
+   - Note: Gemini was referenced in original high-level design documents, but
+     there is no Gemini API call or SDK in the runtime codebase.
+
+3. Code Transformation Approach:
+   - The Stage D code-writing agents (Build, Dependency, Source, Framework,
+     Config, Test) are strictly LLM-driven via gpt-6-luna prompts without
+     hardcoded AST/heuristic rewrites.
+   - File system changes and isolation are managed deterministically via
+     WorkspaceManager and git commands.
+
+
+================================================================================
+STAGE A: REQUEST INTAKE & SCOPING
+================================================================================
+
+1. Modernization Request Intake Agent (ModernizationRequestAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  The entry gate agent that ingests raw user prompts, dictionaries, or API
+  requests and converts them into a normalized ModernizationRequest contract.
+- What problem it solves:
+  Raw user requests are often vague, missing mandatory fields (such as repository
+  URL or target runtime versions), or specify invalid component scope paths.
+- How you're building it (tools, approach):
+  * Tools: Google ADK LlmAgent wrapper with REQUEST_AGENT_INSTRUCTION prompt;
+    Pydantic v2 schemas; regex and keyword matching.
+  * Approach: Deterministic Python execution. Validates schemas, validates
+    local filesystem scope paths via validate_scope_paths(), matches language
+    keywords and version numbers using regex (re.findall), and compiles the
+    missingInformation list. It does not invoke remote LLM APIs at intake time.
+
+
+2. Reassessment Coordinator Agent (ReassessmentCoordinatorAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A workflow feedback agent that updates project constraints and transitions
+  state when human reviewers reject a proposed strategy or request alterations.
+- What problem it solves:
+  Allows user feedback and new constraints to be incorporated without losing
+  onboarding context or restarting the pipeline from scratch.
+- How you're building it (tools, approach):
+  * Tools: ArtifactService, WorkflowStateEngine.
+  * Approach: Deterministic artifact updates. Appends human feedback and new
+    constraints to requests/modernization-request.json and transitions the
+    workflow state to REASSESSMENT_REQUIRED.
+
+
+================================================================================
+STAGE B: CODEBASE DISCOVERY & ASSESSMENT PIPELINE
+================================================================================
+
+3. Repository Discovery Agent (RepositoryDiscoveryAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A structural repository analyzer generating the RepositoryManifest artifact
+  (directory trees, modules, build files, configuration files, total counts).
+- What problem it solves:
+  Prevents LLMs from hallucinating repository structures or crashing due to
+  excessive token usage over large codebases.
+- How you're building it (tools, approach):
+  * Tools: Google ADK LlmAgent (with tools: list_repository_files,
+    detect_build_files, discover_dependencies); RepositoryService (pathlib, os.walk).
+  * Approach: Deterministic file system discovery. Traverses the repository,
+    filters vendor directories (.git, node_modules, target, .venv), identifies
+    root and submodules, categorizes build and deployment files, and produces
+    the topology artifact.
+
+
+4. Technology Discovery Agent (TechnologyDiscoveryAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  An evidence-backed technology stack detector producing TechnologyInventory
+  (detected languages, runtimes, build systems, frameworks, and databases).
+- What problem it solves:
+  Outdated or missing documentation on legacy technology stacks.
+- How you're building it (tools, approach):
+  * Tools: xml.etree.ElementTree (ET) for pom.xml; regex pattern matching for
+    package manifests (package.json, requirements.txt, .csproj, go.mod);
+    ADK LlmAgent.
+  * Approach: Deterministic file inspection with a strict zero-guessing policy:
+    returns None for version/framework if no reliable repository file evidence exists.
+
+
+5. Dependency Analysis Agent (DependencyAnalysisAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  An analysis agent evaluating declared third-party dependencies against the
+  target runtime platform.
+- What problem it solves:
+  Identifies incompatible dependencies, breaking package namespace changes
+  (e.g., javax.* to jakarta.*), and deprecated libraries.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), RepositoryService, Google ADK ParallelAgent.
+  * Approach: Builds a deterministic dependency baseline from build manifests,
+    then passes file samples and target profile rules to Azure OpenAI via
+    generate_llm_response() to identify incompatibilities and recommend replacements.
+    Runs concurrently in parallel with other analysis agents.
+
+
+6. Source Analysis Agent (SourceAnalysisAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A deep-inspection code analyzer scanning application source files for deprecated
+  methods, removed syntax, and migration risks.
+- What problem it solves:
+  Detects compilation-breaking language and API deprecations without manual
+  line-by-line inspection of thousands of code files.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), collect_file_samples(), Google ADK ParallelAgent.
+  * Approach: Samples in-scope source files up to token limits (35 KB buffer),
+    feeds snippets to Azure OpenAI with target migration rules, and parses structured
+    findings (file, lineStart, snippet, severity). Runs in parallel.
+
+
+7. Framework Analysis Agent (FrameworkAnalysisAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  An agent evaluating major framework upgrades (e.g., Spring Boot 2 to 3,
+  AngularJS to modern Angular, Express to NestJS).
+- What problem it solves:
+  Framework migrations introduce breaking lifecycles, configuration format changes,
+  and removed base classes that standard syntax linters miss.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), collect_file_samples(), Google ADK ParallelAgent.
+  * Approach: Samples framework configurations, annotations, and controllers;
+    prompts Azure OpenAI to evaluate breaking framework changes and emit findings. Runs in parallel.
+
+
+8. Configuration Analysis Agent (ConfigurationAnalysisAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  An agent scanning application configurations (.properties, YAML, XML descriptors,
+  Dockerfiles, environment variables) for outdated settings.
+- What problem it solves:
+  Identifies obsolete property keys, modified connection strings, and legacy
+  deployment parameters that prevent modern runtime execution.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), collect_file_samples(), Google ADK ParallelAgent.
+  * Approach: Strictly LLM-driven (no PyYAML or XML parsers imported here). Reads
+    config files as raw text strings via collect_file_samples() and prompts gpt-6-luna
+    to semantically identify incompatible keys and missing cloud-native configurations. Runs in parallel.
+
+
+9. Quality & Security Agent (QualitySecurityAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A pre-migration code health and vulnerability scanner.
+- What problem it solves:
+  Prevents migrating untested code or leaking hardcoded credentials into reports.
+- How you're building it (tools, approach):
+  * Tools: Python regex patterns for secret detection; Azure OpenAI SDK (gpt-6-luna),
+    Google ADK ParallelAgent.
+  * Approach: Regex pattern detection enforces redacting detected keys/passwords
+    to '[REDACTED_SECRET]'; Azure OpenAI analyzes test directory coverage structure
+    and flags regression risks. Runs in parallel.
+
+
+10. Assessment Aggregator Agent (AssessmentAggregatorAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A finding consolidation agent producing the unified AssessmentReport artifact.
+- What problem it solves:
+  Deduplicates overlapping findings across parallel agents, normalizes finding IDs,
+  and unifies component impacts.
+- How you're building it (tools, approach):
+  * Tools: Deterministic Python set/dict algorithms, Pydantic schemas, ArtifactService.
+  * Approach: Merges dependency, source, framework, configuration, and security
+    findings into a single authoritative report without LLM calls.
+
+
+11. Feasibility Agent (FeasibilityAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  A strategic governance agent determining migration viability (FEASIBLE,
+  CONDITIONALLY_FEASIBLE, BLOCKED) and formulating alternatives.
+- What problem it solves:
+  Prevents starting transformations when critical blockers (e.g. sunset proprietary
+  frameworks) exist without human authorization.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkflowStateEngine.
+  * Approach: Evaluates findings against user constraints using gpt-6-luna;
+    generates viable approaches and alternatives; enforces requiresHumanApproval=True
+    and marks state as AWAITING_APPROVAL (Human-in-the-Loop boundary).
+
+
+================================================================================
+STAGE C: MIGRATION PLANNING & ARCHITECTURE
+================================================================================
+
+12. Migration Planner Agent (MigrationPlannerAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  An architect agent translating approved decisions into a phased, ordered
+  MigrationBlueprint artifact.
+- What problem it solves:
+  Transforming code in arbitrary order causes broken dependency chains and
+  unrecoverable compilation states.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), Pydantic models (MigrationPhase,
+    MigrationTask, Checkpoint, RollbackStrategy).
+  * Approach: Feeds approved strategy and assessment findings into gpt-6-luna
+    to generate an ordered sequence:
+      Phase 1: Workspace Baseline Isolation
+      Phase 2: Build & Dependency Modernization
+      Phase 3: Framework & Configuration Migration
+      Phase 4: Source Code Refactoring
+      Phase 5: Test Remediation & Verification
+
+
+================================================================================
+STAGE D: CONTROLLED TRANSFORMATION AGENTS
+================================================================================
+
+13. Stage D Orchestrator (StageDOrchestrator)
+--------------------------------------------------------------------------------
+- What you're building:
+  The autonomous coordinator executing the blueprint tasks and driving remediation.
+- What problem it solves:
+  Static scripts cannot adapt when intermediate edits break builds or tests.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), Google ADK AdkBaseAgent,
+    TransformationAgentRegistry, ThreadPoolExecutor.
+  * Approach: Autonomous step loop (ANALYZE -> SELECT_AGENT -> EXECUTE ->
+    VALIDATE -> REMEDIATE / COMPLETE). At each step, gpt-6-luna reasons over
+    execution outputs to pick the next agent, run validation, or trigger self-healing.
+
+
+14. Workspace Branch Agent (WorkspaceBranchAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Git isolation and baseline snapshot manager.
+- What problem it solves:
+  Prevents destructive edits on working repositories and creates clean rollback baselines.
+- How you're building it (tools, approach):
+  * Tools: Git CLI subprocess calls via WorkspaceManager; Azure OpenAI (gpt-6-luna).
+  * Approach: Executes git status, git init (if needed), checks out isolated
+    migration branch (e.g. migration/{project_id}-baseline), and records baseline commits.
+
+
+15. Build Configuration Agent (BuildConfigurationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent modernizing build manifests (pom.xml, build.gradle, package.json, pyproject.toml).
+- What problem it solves:
+  Aligning compiler targets, plugins, and packaging configurations.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven (no AST or XML tree manipulation). Reads the file
+    content as plain text, prompts gpt-6-luna for modernized content, and writes
+    the updated file through workspace.write_file().
+
+
+16. Dependency Migration Agent (DependencyMigrationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent modernizing dependency coordinates in build manifests.
+- What problem it solves:
+  Upgrading library versions, resolving breaking coordinate changes, and replacing sunset libraries.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven. Submits manifest text and task specifications
+    to gpt-6-luna, receiving updated file content and writing it via WorkspaceManager.
+
+
+17. Source Transformation Agent (SourceTransformationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent performing source code refactoring across classes and modules.
+- What problem it solves:
+  Rewriting deprecated method invocations, updating language syntax, and fixing compiler errors.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven. Passes source file contents and finding evidence
+    to gpt-6-luna, verifies scope protection boundaries, writes updated content,
+    and records file diffs.
+
+
+18. Framework Transformation Agent (FrameworkTransformationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent updating framework-level annotations, middleware, and lifecycle beans.
+- What problem it solves:
+  Structural framework migrations (e.g., Spring Security filter chains, modern controller annotations).
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven. Feeds class context to gpt-6-luna to generate
+    modernized class content reflecting target framework conventions.
+
+
+19. Configuration Migration Agent (ConfigurationMigrationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent updating configuration files (.properties, .yaml, .json, .env, .xml).
+- What problem it solves:
+  Renamed property keys, altered connection strings, and deprecated runtime parameters.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven (no YAML/XML parser libraries). Reads file as raw text,
+    prompts gpt-6-luna to rename properties, and writes updated content via workspace.write_file().
+
+
+20. Test Remediation Agent (TestRemediationAgent)
+--------------------------------------------------------------------------------
+- What you're building:
+  Specialized agent updating test suites to match modernized frameworks.
+- What problem it solves:
+  Broken test assertions, obsolete annotations (e.g., JUnit 4 to JUnit 5), and deprecated mocks.
+- How you're building it (tools, approach):
+  * Tools: Azure OpenAI SDK (gpt-6-luna), WorkspaceManager.
+  * Approach: Strictly LLM-driven. Passes broken test files to gpt-6-luna with target
+    runtime specifications, generating updated tests that pass with the modern runner.
+
+
+================================================================================
+STAGE E: BUILD VERIFICATION & RECOVERY
+================================================================================
+
+21. Stage E Validator Agent (StageEValidator)
+--------------------------------------------------------------------------------
+- What you're building:
+  The multi-language build, compilation, and test execution runner.
+- What problem it solves:
+  Detects compilation errors, broken tests, or syntax issues immediately after
+  code transformation steps.
+- How you're building it (tools, approach):
+  * Tools: Subprocess execution via workspace.run_command() (mvn clean compile/test,
+    gradle build, npm test, pytest); xml.etree.ElementTree (ET) for parsing
+    Surefire/JUnit XML test reports; yaml (PyYAML) for deployment checks.
+  * Approach: Deterministic execution. Runs real build/test commands inside the
+    isolated branch workspace, captures exit codes and stdout/stderr compiler
+    diagnostics, parses test XML reports, and returns a structured StageEValidationResult.
+    Diagnostics are fed back to the Stage D Orchestrator for automated remediation loops.
+================================================================================
+
